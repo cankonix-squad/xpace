@@ -1,0 +1,55 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /apps/web
+    schedule:
+      interval: weekly
+      day: monday
+      time: "02:00"
+      timezone: Asia/Jakarta
+    groups:
+      web-dependencies:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: gomod
+    directory: /services/api
+    schedule:
+      interval: weekly
+      day: monday
+      time: "02:15"
+      timezone: Asia/Jakarta
+    groups:
+      api-dependencies:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directory: /apps/web
+    schedule:
+      interval: weekly
+      day: monday
+      time: "02:30"
+      timezone: Asia/Jakarta
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: docker
+    directory: /services/api
+    schedule:
+      interval: weekly
+      day: monday
+      time: "02:45"
+      timezone: Asia/Jakarta
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: Asia/Jakarta
+    groups:
+      github-actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 3
