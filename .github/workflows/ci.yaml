@@ -67,3 +67,32 @@ jobs:
         run: |
           grep -Fq 'USER nextjs' apps/web/Dockerfile
           grep -Fq 'USER xpace' services/api/Dockerfile
+
+  images:
+    name: Container image scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+      - name: Build runtime images
+        run: |
+          docker build --tag xpace-api:ci services/api
+          docker build --tag xpace-web:ci apps/web
+      - name: Prepare scanner cache
+        run: docker volume create xpace-trivy-cache
+      - name: Scan API image
+        run: |
+          docker run --rm \
+            --volume /var/run/docker.sock:/var/run/docker.sock \
+            --volume xpace-trivy-cache:/root/.cache \
+            aquasec/trivy@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c \
+            image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed \
+            --exit-code 1 --no-progress xpace-api:ci
+      - name: Scan Web image
+        run: |
+          docker run --rm \
+            --volume /var/run/docker.sock:/var/run/docker.sock \
+            --volume xpace-trivy-cache:/root/.cache \
+            aquasec/trivy@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c \
+            image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed \
+            --exit-code 1 --no-progress xpace-web:ci
