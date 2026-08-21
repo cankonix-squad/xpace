@@ -10,6 +10,9 @@ updates:
     groups:
       web-dependencies:
         patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     open-pull-requests-limit: 5
 
   - package-ecosystem: gomod
@@ -31,6 +34,9 @@ updates:
       day: monday
       time: "02:30"
       timezone: Asia/Jakarta
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     open-pull-requests-limit: 3
 
   - package-ecosystem: docker
