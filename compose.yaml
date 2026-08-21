@@ -111,7 +111,7 @@ services:
         rtc:
           tcp_port: 7881
           udp_port: 7882
-          use_external_ip: false
+          use_external_ip: true
         redis:
           address: redis:6379
           password: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
@@ -119,7 +119,7 @@ services:
           ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in .env}: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET in .env}
         turn:
           enabled: true
-          domain: localhost
+          domain: ${LIVEKIT_DOMAIN:-localhost}
           udp_port: 3479
     ports:
       - "127.0.0.1:7880:7880"
