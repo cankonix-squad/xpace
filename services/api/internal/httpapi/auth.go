@@ -153,7 +153,7 @@ func (api *API) logout(writer http.ResponseWriter, request *http.Request) {
 			}
 		}
 	}
-	http.SetCookie(writer, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, MaxAge: -1, Expires: time.Unix(0, 0)})
+	http.SetCookie(writer, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, Secure: os.Getenv("COOKIE_SECURE") == "true", SameSite: http.SameSiteLaxMode, MaxAge: -1, Expires: time.Unix(0, 0)})
 	writer.WriteHeader(http.StatusNoContent)
 }
 
