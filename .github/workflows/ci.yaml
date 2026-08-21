@@ -29,6 +29,8 @@ jobs:
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - run: npm ci
+      - name: Audit web dependencies
+        run: npm audit --audit-level=high
       - run: npm run lint
       - run: npm run build
 
@@ -47,6 +49,8 @@ jobs:
           go-version-file: services/api/go.mod
           cache-dependency-path: services/api/go.sum
       - run: go test ./...
+      - name: Scan reachable Go vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 
   deployment:
     name: Deployment manifests
