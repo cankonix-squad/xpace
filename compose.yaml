@@ -1,0 +1,192 @@
+name: xpace
+
+services:
+  api:
+    build:
+      context: ./services/api
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-xpace}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-xpace}?sslmode=disable
+      API_SESSION_SIGNING_KEY: ${API_SESSION_SIGNING_KEY:?Set API_SESSION_SIGNING_KEY in .env}
+      API_SESSION_SIGNING_KEY_PREVIOUS: ${API_SESSION_SIGNING_KEY_PREVIOUS:-}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in .env}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET in .env}
+      LIVEKIT_API_URL: http://livekit:7880
+      LIVEKIT_WS_URL: ws://localhost:7880
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-xpace-local}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+      RECORDING_S3_ENDPOINT: http://minio:9000
+      RECORDING_S3_PUBLIC_ENDPOINT: ${RECORDING_S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      RECORDING_S3_BUCKET: xpace-recordings
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      livekit:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-xpace}
+      POSTGRES_USER: ${POSTGRES_USER:-xpace}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./services/api/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-xpace-local}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" &&
+        mc mb --ignore-existing local/xpace-recordings &&
+        mc anonymous set none local/xpace-recordings
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-xpace-local}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+
+  livekit:
+    image: livekit/livekit-server:v1.13.1
+    environment:
+      LIVEKIT_CONFIG: |
+        port: 7880
+        log_level: info
+        rtc:
+          tcp_port: 7881
+          udp_port: 7882
+          use_external_ip: false
+        redis:
+          address: redis:6379
+          password: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+        keys:
+          ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in .env}: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET in .env}
+        turn:
+          enabled: true
+          domain: localhost
+          udp_port: 3479
+    ports:
+      - "127.0.0.1:7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+      - "3479:3479/udp"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:7880/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  egress:
+    image: livekit/egress:v1.9.0
+    environment:
+      EGRESS_CONFIG_FILE: /etc/egress.yaml
+    configs:
+      - source: egress-config
+        target: /etc/egress.yaml
+    shm_size: "1gb"
+    cap_add:
+      - SYS_ADMIN
+    depends_on:
+      livekit:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  coturn:
+    image: coturn/coturn:4.6.3
+    command:
+      - --log-file=stdout
+      - --fingerprint
+      - --use-auth-secret
+      - --static-auth-secret=${COTURN_AUTH_SECRET:?Set COTURN_AUTH_SECRET in .env}
+      - --realm=${COTURN_REALM:-turn.localhost}
+      - --min-port=49160
+      - --max-port=49200
+      - --no-cli
+      - --no-multicast-peers
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "49160-49200:49160-49200/udp"
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+
+configs:
+  egress-config:
+    content: |
+      api_key: ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in .env}
+      api_secret: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET in .env}
+      ws_url: ws://livekit:7880
+      redis:
+        address: redis:6379
+        password: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+      health_port: 8081
+      cpu_cost:
+        room_composite_cpu_cost: 1.5

@@ -1,0 +1,11 @@
+.DS_Store
+.env
+.env.local
+coverage/
+
+# Next.js
+apps/web/node_modules/
+apps/web/.next/
+
+# Go
+services/api/bin/

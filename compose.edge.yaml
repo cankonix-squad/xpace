@@ -1,0 +1,74 @@
+services:
+  web:
+    build:
+      context: ./apps/web
+    environment:
+      API_URL: http://api:8080
+    expose:
+      - "3300"
+    networks:
+      - default
+      - cankonix-proxy
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3300/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=cankonix-proxy
+      - traefik.http.routers.xpace-web.rule=Host(`${XPACE_DOMAIN:?Set XPACE_DOMAIN in .env}`)
+      - traefik.http.routers.xpace-web.entrypoints=websecure
+      - traefik.http.routers.xpace-web.tls.certresolver=letsencrypt
+      - traefik.http.services.xpace-web.loadbalancer.server.port=3300
+    restart: unless-stopped
+
+  api:
+    environment:
+      COOKIE_SECURE: "true"
+      LIVEKIT_WS_URL: wss://${LIVEKIT_DOMAIN:?Set LIVEKIT_DOMAIN in .env}
+      RECORDING_S3_PUBLIC_ENDPOINT: https://${LIVEKIT_DOMAIN:?Set LIVEKIT_DOMAIN in .env}
+    networks:
+      - default
+      - cankonix-proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=cankonix-proxy
+      - traefik.http.routers.xpace-api.rule=Host(`${XPACE_DOMAIN:?Set XPACE_DOMAIN in .env}`) && (PathPrefix(`/api/v1`) || Path(`/healthz`))
+      - traefik.http.routers.xpace-api.priority=100
+      - traefik.http.routers.xpace-api.entrypoints=websecure
+      - traefik.http.routers.xpace-api.tls.certresolver=letsencrypt
+      - traefik.http.services.xpace-api.loadbalancer.server.port=8080
+
+  livekit:
+    networks:
+      - default
+      - cankonix-proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=cankonix-proxy
+      - traefik.http.routers.xpace-livekit.rule=Host(`${LIVEKIT_DOMAIN:?Set LIVEKIT_DOMAIN in .env}`)
+      - traefik.http.routers.xpace-livekit.entrypoints=websecure
+      - traefik.http.routers.xpace-livekit.tls.certresolver=letsencrypt
+      - traefik.http.services.xpace-livekit.loadbalancer.server.port=7880
+
+  minio:
+    networks:
+      - default
+      - cankonix-proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=cankonix-proxy
+      - traefik.http.routers.xpace-recordings.rule=Host(`${LIVEKIT_DOMAIN:?Set LIVEKIT_DOMAIN in .env}`) && PathPrefix(`/xpace-recordings`)
+      - traefik.http.routers.xpace-recordings.priority=200
+      - traefik.http.routers.xpace-recordings.entrypoints=websecure
+      - traefik.http.routers.xpace-recordings.tls.certresolver=letsencrypt
+      - traefik.http.services.xpace-recordings.loadbalancer.server.port=9000
+
+networks:
+  cankonix-proxy:
+    external: true

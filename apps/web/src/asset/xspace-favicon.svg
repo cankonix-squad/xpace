@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Xspace favicon</title>
+  <desc id="desc">Stylized X with orbit and chat bubble in neon green and white.</desc>
+  <defs>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="7" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <linearGradient id="greenGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#B8FF22"/>
+      <stop offset="100%" stop-color="#6EDB00"/>
+    </linearGradient>
+  </defs>
+  <rect x="28" y="28" width="456" height="456" rx="110" fill="#070A08" stroke="#8CFF16" stroke-width="10"/>
+  <circle cx="250" cy="250" r="166" fill="none" stroke="#8CFF16" stroke-width="10" stroke-linecap="round" filter="url(#glow)"/>
+  <circle cx="250" cy="84" r="16" fill="#FFFFFF" stroke="#8CFF16" stroke-width="7"/>
+  <circle cx="84" cy="250" r="14" fill="#FFFFFF" stroke="#8CFF16" stroke-width="7"/>
+  <circle cx="250" cy="416" r="16" fill="#FFFFFF" stroke="#8CFF16" stroke-width="7"/>
+  <circle cx="364" cy="129" r="10" fill="#8CFF16"/>
+  <path d="M156 150 L215 150 L278 242 L218 242 Z" fill="#FFFFFF"/>
+  <path d="M156 350 L215 350 L278 258 L218 258 Z" fill="#FFFFFF"/>
+  <path d="M294 150 L356 150 L291 242 L230 242 Z" fill="url(#greenGrad)"/>
+  <path d="M294 350 L356 350 L291 258 L230 258 Z" fill="url(#greenGrad)"/>
+  <g filter="url(#glow)">
+    <path d="M356 195 C404 195 438 224 438 261 C438 298 405 326 361 328 L334 351 L340 319 C311 307 294 286 294 261 C294 224 320 195 356 195 Z"
+          fill="#070A08" stroke="#8CFF16" stroke-width="10" stroke-linejoin="round"/>
+    <circle cx="336" cy="261" r="8" fill="#8CFF16"/>
+    <circle cx="363" cy="261" r="8" fill="#8CFF16"/>
+    <circle cx="390" cy="261" r="8" fill="#8CFF16"/>
+  </g>
+</svg>

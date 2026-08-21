@@ -1,0 +1,74 @@
+services:
+  proxy:
+    image: traefik:v3.5
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?Set ACME_EMAIL in .env}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - --accesslog=true
+      - --ping=true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt-data:/letsencrypt
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./apps/web
+    environment:
+      API_URL: http://api:8080
+    expose:
+      - "3300"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3300/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.xpace-web.rule=Host(`${XPACE_DOMAIN:?Set XPACE_DOMAIN in .env}`)
+      - traefik.http.routers.xpace-web.entrypoints=websecure
+      - traefik.http.routers.xpace-web.tls.certresolver=letsencrypt
+      - traefik.http.services.xpace-web.loadbalancer.server.port=3300
+    restart: unless-stopped
+
+  api:
+    environment:
+      COOKIE_SECURE: "true"
+      LIVEKIT_WS_URL: wss://${LIVEKIT_DOMAIN:?Set LIVEKIT_DOMAIN in .env}
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.xpace-api.rule=Host(`${XPACE_DOMAIN:?Set XPACE_DOMAIN in .env}`) && (PathPrefix(`/api/v1`) || Path(`/healthz`))
+      - traefik.http.routers.xpace-api.priority=100
+      - traefik.http.routers.xpace-api.entrypoints=websecure
+      - traefik.http.routers.xpace-api.tls.certresolver=letsencrypt
+      - traefik.http.services.xpace-api.loadbalancer.server.port=8080
+
+  livekit:
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.xpace-livekit.rule=Host(`${LIVEKIT_DOMAIN:?Set LIVEKIT_DOMAIN in .env}`)
+      - traefik.http.routers.xpace-livekit.entrypoints=websecure
+      - traefik.http.routers.xpace-livekit.tls.certresolver=letsencrypt
+      - traefik.http.services.xpace-livekit.loadbalancer.server.port=7880
+
+volumes:
+  letsencrypt-data:
