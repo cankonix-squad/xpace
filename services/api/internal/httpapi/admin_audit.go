@@ -43,7 +43,7 @@ func (api *API) adminAuditLog(writer http.ResponseWriter, request *http.Request,
 		return
 	}
 	defer rows.Close()
-	items := make([]auditEventResponse, 0, limit)
+	items := make([]auditEventResponse, 0, 100)
 	for rows.Next() {
 		var item auditEventResponse
 		var metadata []byte

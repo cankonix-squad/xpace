@@ -46,7 +46,7 @@ func (api *API) adminMeetings(writer http.ResponseWriter, request *http.Request,
 		return
 	}
 	defer rows.Close()
-	items := make([]adminMeetingListItem, 0, limit)
+	items := make([]adminMeetingListItem, 0, 100)
 	for rows.Next() {
 		var item adminMeetingListItem
 		if err = rows.Scan(&item.ID, &item.Title, &item.JoinCode, &item.Status, &item.HostName, &item.ScheduledAt, &item.StartedAt, &item.EndedAt, &item.CreatedAt, &item.ParticipantCount, &item.RecordingCount, &item.DurationSeconds); err != nil {

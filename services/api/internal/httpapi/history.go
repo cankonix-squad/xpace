@@ -52,7 +52,7 @@ func (api *API) meetingHistory(writer http.ResponseWriter, request *http.Request
 		return
 	}
 	defer rows.Close()
-	items := make([]meetingHistoryResponse, 0, limit)
+	items := make([]meetingHistoryResponse, 0, 100)
 	for rows.Next() {
 		var item meetingHistoryResponse
 		if err = rows.Scan(&item.ID, &item.Title, &item.JoinCode, &item.Status,
