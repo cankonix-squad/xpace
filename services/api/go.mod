@@ -1,6 +1,6 @@
 module github.com/cankonix/xpace/api
 
-go 1.26.0
+go 1.26.6
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260415201107-50325440f8f2.1 // indirect
