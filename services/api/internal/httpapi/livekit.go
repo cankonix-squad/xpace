@@ -70,14 +70,12 @@ func (api *API) liveKitToken(writer http.ResponseWriter, request *http.Request, 
 		errorJSON(writer, http.StatusInternalServerError, "INTERNAL_ERROR", "could not issue realtime token")
 		return
 	}
-	actorID := user.ID
 	metadata := map[string]any{"participantId": participantID}
 	if meeting.TenantID != user.TenantID {
-		actorID = ""
 		metadata["externalUserId"] = user.ID
 		metadata["externalTenantId"] = user.TenantID
 	}
-	_ = api.writeAuditEvent(request.Context(), request, meeting.TenantID, actorID, "realtime.token.issue", "meeting", meeting.ID, metadata)
+	_ = api.writeAuditEvent(request.Context(), request, meeting.TenantID, user.ID, "realtime.token.issue", "meeting", meeting.ID, metadata)
 	respondJSON(writer, http.StatusOK, map[string]any{"token": jwt, "serverUrl": envOr("LIVEKIT_WS_URL", "ws://localhost:7880"), "roomName": meeting.RoomName, "screenShareEnabled": policy.ScreenShareEnabled})
 }
 

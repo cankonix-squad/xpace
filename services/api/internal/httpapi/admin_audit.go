@@ -9,16 +9,17 @@ import (
 )
 
 type auditEventResponse struct {
-	ID           string         `json:"id"`
-	Action       string         `json:"action"`
-	ResourceType string         `json:"resourceType"`
-	ResourceID   *string        `json:"resourceId"`
-	ActorUserID  *string        `json:"actorUserId"`
-	ActorName    string         `json:"actorName"`
-	IPAddress    *string        `json:"ipAddress"`
-	UserAgent    *string        `json:"userAgent"`
-	Metadata     map[string]any `json:"metadata"`
-	CreatedAt    time.Time      `json:"createdAt"`
+	ID            string         `json:"id"`
+	Action        string         `json:"action"`
+	ResourceType  string         `json:"resourceType"`
+	ResourceID    *string        `json:"resourceId"`
+	ActorUserID   *string        `json:"actorUserId"`
+	ActorTenantID *string        `json:"actorTenantId"`
+	ActorName     string         `json:"actorName"`
+	IPAddress     *string        `json:"ipAddress"`
+	UserAgent     *string        `json:"userAgent"`
+	Metadata      map[string]any `json:"metadata"`
+	CreatedAt     time.Time      `json:"createdAt"`
 }
 
 func (api *API) adminAuditLog(writer http.ResponseWriter, request *http.Request, actor currentUser) {
@@ -32,9 +33,9 @@ func (api *API) adminAuditLog(writer http.ResponseWriter, request *http.Request,
 		return
 	}
 	rows, err := api.database.QueryContext(request.Context(), `
-		SELECT a.id,a.action,a.resource_type,a.resource_id,a.actor_user_id,
+		SELECT a.id,a.action,a.resource_type,a.resource_id,a.actor_user_id,a.actor_tenant_id,
 		       COALESCE(u.display_name,'System'),a.ip_address::text,a.user_agent,a.metadata,a.created_at
-		FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id AND u.tenant_id=a.tenant_id
+		FROM audit_events a LEFT JOIN users u ON u.id=a.actor_user_id AND u.tenant_id=a.actor_tenant_id
 		WHERE a.tenant_id=$1 AND ($2='' OR a.action ILIKE $2||'%%')
 		  AND ($3='' OR a.resource_type=$3) AND ($4='' OR a.actor_user_id::text=$4)
 		ORDER BY a.created_at DESC,a.id DESC LIMIT $5 OFFSET $6`, actor.TenantID, action, resource, actorID, limit+1, offset)
@@ -47,7 +48,7 @@ func (api *API) adminAuditLog(writer http.ResponseWriter, request *http.Request,
 	for rows.Next() {
 		var item auditEventResponse
 		var metadata []byte
-		if err = rows.Scan(&item.ID, &item.Action, &item.ResourceType, &item.ResourceID, &item.ActorUserID, &item.ActorName, &item.IPAddress, &item.UserAgent, &metadata, &item.CreatedAt); err != nil {
+		if err = rows.Scan(&item.ID, &item.Action, &item.ResourceType, &item.ResourceID, &item.ActorUserID, &item.ActorTenantID, &item.ActorName, &item.IPAddress, &item.UserAgent, &metadata, &item.CreatedAt); err != nil {
 			errorJSON(writer, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load audit events")
 			return
 		}

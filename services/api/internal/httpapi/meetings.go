@@ -276,14 +276,12 @@ func (api *API) joinMeeting(writer http.ResponseWriter, request *http.Request, u
 		}
 		meeting.Status = "ACTIVE"
 	}
-	actorID := user.ID
 	auditMetadata := map[string]any{"participantId": participantID, "status": status, "role": participantRole, "recordingNoticeAcknowledged": true, "recordingConsentVersion": currentRecordingConsentVersion()}
 	if meeting.ExternalGuest {
-		actorID = ""
 		auditMetadata["externalUserId"] = user.ID
 		auditMetadata["externalTenantId"] = user.TenantID
 	}
-	_ = api.writeAuditEvent(request.Context(), request, meeting.TenantID, actorID, "meeting.join", "meeting", meeting.ID, auditMetadata)
+	_ = api.writeAuditEvent(request.Context(), request, meeting.TenantID, user.ID, "meeting.join", "meeting", meeting.ID, auditMetadata)
 	respondJSON(writer, 201, map[string]any{"meeting": meeting, "participant": map[string]string{"id": participantID, "status": status}})
 }
 

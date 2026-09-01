@@ -45,6 +45,8 @@ func TestIntegrationTenantIsolation(t *testing.T) {
 	}
 	victimTenantID, victimSlug := createIsolationTenant(t, ctx, database, "victim-"+suffix, "Victim Workspace")
 	attackerTenantID, attackerSlug := createIsolationTenant(t, ctx, database, "attacker-"+suffix, "Attacker Workspace")
+	platformTenantID, platformSlug := createIsolationTenant(t, ctx, database, "platform-"+suffix, "Platform Operations")
+	t.Cleanup(func() { cleanupIsolationTenant(t, database, platformTenantID) })
 	t.Cleanup(func() { cleanupIsolationTenant(t, database, attackerTenantID) })
 	t.Cleanup(func() { cleanupIsolationTenant(t, database, victimTenantID) })
 
@@ -53,15 +55,18 @@ func TestIntegrationTenantIsolation(t *testing.T) {
 	attackerAdminID := createIsolationUser(t, ctx, database, attackerTenantID, "attacker-admin", "Attacker Admin", "TENANT_ADMIN", suffix, hash)
 	attackerMemberID := createIsolationUser(t, ctx, database, attackerTenantID, "attacker-member", "Attacker Member", "MEMBER", suffix, hash)
 	attackerGuestID := createIsolationUser(t, ctx, database, attackerTenantID, "attacker-guest", "Attacker Guest", "GUEST", suffix, hash)
+	platformAdminID := createIsolationUser(t, ctx, database, platformTenantID, "platform-admin", "Platform Admin", "SUPER_ADMIN", suffix, hash)
 
 	victim := newAPIClient(t)
 	attacker := newAPIClient(t)
 	member := newAPIClient(t)
 	guest := newAPIClient(t)
+	platformAdmin := newAPIClient(t)
 	doJSON(t, victim, http.MethodPost, baseURL+"/api/v1/auth/login", map[string]any{"tenant": victimSlug, "identity": "victim-admin", "password": password}, http.StatusOK, nil)
 	doJSON(t, attacker, http.MethodPost, baseURL+"/api/v1/auth/login", map[string]any{"tenant": attackerSlug, "identity": "attacker-admin", "password": password}, http.StatusOK, nil)
 	doJSON(t, member, http.MethodPost, baseURL+"/api/v1/auth/login", map[string]any{"tenant": attackerSlug, "identity": "attacker-member", "password": password}, http.StatusOK, nil)
 	doJSON(t, guest, http.MethodPost, baseURL+"/api/v1/auth/login", map[string]any{"tenant": attackerSlug, "identity": "attacker-guest", "password": password}, http.StatusOK, nil)
+	doJSON(t, platformAdmin, http.MethodPost, baseURL+"/api/v1/auth/login", map[string]any{"tenant": platformSlug, "identity": "platform-admin", "password": password}, http.StatusOK, nil)
 
 	var group struct {
 		Group struct {
@@ -148,26 +153,50 @@ func TestIntegrationTenantIsolation(t *testing.T) {
 	})
 
 	t.Run("foreign directory and user IDs are hidden", func(t *testing.T) {
-		doJSON(t, attacker, http.MethodGet, baseURL+"/api/v1/directory/users/"+victimMemberID+"/avatar", nil, http.StatusNotFound, nil)
+		for role, client := range map[string]*http.Client{"tenant admin": attacker, "member": member, "guest": guest} {
+			t.Run(role, func(t *testing.T) {
+				doJSON(t, client, http.MethodGet, baseURL+"/api/v1/directory/users/"+victimMemberID+"/avatar", nil, http.StatusNotFound, nil)
+			})
+		}
 		doJSON(t, attacker, http.MethodPatch, baseURL+"/api/v1/admin/users/"+victimMemberID, map[string]any{"role": "MEMBER", "status": "DEACTIVATED"}, http.StatusNotFound, nil)
 		assertUserStillActive(t, ctx, database, victimTenantID, victimMemberID)
 	})
 
 	t.Run("foreign collaboration resources are inaccessible", func(t *testing.T) {
-		doJSON(t, attacker, http.MethodGet, baseURL+"/api/v1/rooms/"+room.Room.ID, nil, http.StatusNotFound, nil)
+		for role, client := range map[string]*http.Client{"tenant admin": attacker, "member": member, "guest": guest} {
+			t.Run(role, func(t *testing.T) {
+				doJSON(t, client, http.MethodGet, baseURL+"/api/v1/rooms/"+room.Room.ID, nil, http.StatusNotFound, nil)
+				doJSON(t, client, http.MethodGet, baseURL+"/api/v1/chat/conversations/"+conversation.Conversation.ID+"/messages", nil, http.StatusNotFound, nil)
+				doJSON(t, client, http.MethodGet, baseURL+"/api/v1/recordings/"+recordingID+"/file", nil, http.StatusNotFound, nil)
+			})
+		}
 		doJSON(t, attacker, http.MethodPut, baseURL+"/api/v1/rooms/"+room.Room.ID+"/members/"+attackerMemberID, map[string]any{"role": "MEMBER"}, http.StatusForbidden, nil)
 		doJSON(t, attacker, http.MethodPatch, baseURL+"/api/v1/drive/nodes/"+node.Node.ID, map[string]any{"name": "stolen"}, http.StatusForbidden, nil)
 		doJSON(t, attacker, http.MethodPatch, baseURL+"/api/v1/calendar/events/"+event.Event.ID+"/response", map[string]any{"status": "ACCEPTED"}, http.StatusNotFound, nil)
-		doJSON(t, attacker, http.MethodGet, baseURL+"/api/v1/chat/conversations/"+conversation.Conversation.ID+"/messages", nil, http.StatusNotFound, nil)
 	})
 
 	t.Run("cross-workspace meeting exposes preview only", func(t *testing.T) {
-		doJSON(t, attacker, http.MethodGet, baseURL+"/api/v1/meetings/"+meeting.Meeting.JoinCode, nil, http.StatusOK, nil)
+		meetingURL := baseURL + "/api/v1/meetings/" + meeting.Meeting.JoinCode
+		for role, client := range map[string]*http.Client{"tenant admin": attacker, "member": member, "guest": guest} {
+			t.Run(role+" preview", func(t *testing.T) {
+				doJSON(t, client, http.MethodGet, meetingURL, nil, http.StatusOK, nil)
+				doJSON(t, client, http.MethodGet, meetingURL+"/participants", nil, http.StatusForbidden, nil)
+			})
+		}
 		doJSON(t, attacker, http.MethodDelete, baseURL+"/api/v1/meetings/"+meeting.Meeting.JoinCode, nil, http.StatusNotFound, nil)
 		doJSON(t, attacker, http.MethodPost, baseURL+"/api/v1/meetings/"+meeting.Meeting.JoinCode+"/moderation/lock", nil, http.StatusNotFound, nil)
-		doJSON(t, attacker, http.MethodGet, baseURL+"/api/v1/meetings/"+meeting.Meeting.JoinCode+"/participants", nil, http.StatusForbidden, nil)
 		doJSON(t, attacker, http.MethodGet, baseURL+"/api/v1/admin/meetings/"+meeting.Meeting.ID, nil, http.StatusNotFound, nil)
 		doJSON(t, attacker, http.MethodGet, baseURL+"/api/v1/recordings/"+recordingID+"/file", nil, http.StatusNotFound, nil)
+
+		var externalJoin joinResponse
+		doJSON(t, guest, http.MethodPost, meetingURL+"/join", recordingAcknowledgement(), http.StatusCreated, &externalJoin)
+		if externalJoin.Participant.Status != "WAITING_ROOM" {
+			t.Fatalf("external guest status = %q, want WAITING_ROOM", externalJoin.Participant.Status)
+		}
+		doJSON(t, guest, http.MethodPost, meetingURL+"/token", nil, http.StatusForbidden, nil)
+		doJSON(t, guest, http.MethodPost, meetingURL+"/moderation/lock", nil, http.StatusNotFound, nil)
+		assertExternalParticipant(t, ctx, database, meeting.Meeting.ID, attackerTenantID, attackerGuestID)
+		assertCrossTenantAudit(t, ctx, database, victimTenantID, attackerTenantID, attackerGuestID, "meeting.join")
 	})
 
 	t.Run("foreign governance and security objects are immutable", func(t *testing.T) {
@@ -187,8 +216,35 @@ func TestIntegrationTenantIsolation(t *testing.T) {
 		doJSON(t, attacker, http.MethodGet, baseURL+"/api/v1/platform/tenants/"+victimTenantID, nil, http.StatusForbidden, nil)
 	})
 
+	t.Run("platform admin support access is explicit temporary and revocable", func(t *testing.T) {
+		doJSON(t, platformAdmin, http.MethodGet, baseURL+"/api/v1/platform/overview", nil, http.StatusOK, nil)
+		doJSON(t, platformAdmin, http.MethodGet, baseURL+"/api/v1/platform/tenants/"+victimTenantID, nil, http.StatusOK, nil)
+		doJSON(t, platformAdmin, http.MethodGet, baseURL+"/api/v1/rooms/"+room.Room.ID, nil, http.StatusNotFound, nil)
+		doJSON(t, platformAdmin, http.MethodGet, baseURL+"/api/v1/platform/tenants/"+victimTenantID+"/support-view", nil, http.StatusForbidden, nil)
+		doJSON(t, platformAdmin, http.MethodPost, baseURL+"/api/v1/platform/tenants/"+victimTenantID+"/support-access", map[string]any{"reason": "no", "durationMinutes": 30}, http.StatusBadRequest, nil)
+
+		var support struct {
+			ID string `json:"id"`
+		}
+		doJSON(t, platformAdmin, http.MethodPost, baseURL+"/api/v1/platform/tenants/"+victimTenantID+"/support-access", map[string]any{"reason": "Authenticated tenant isolation verification", "durationMinutes": 15}, http.StatusCreated, &support)
+		if support.ID == "" {
+			t.Fatal("support access id was not returned")
+		}
+		var supportView struct {
+			Users []struct {
+				ID string `json:"id"`
+			} `json:"users"`
+		}
+		doJSON(t, platformAdmin, http.MethodGet, baseURL+"/api/v1/platform/tenants/"+victimTenantID+"/support-view", nil, http.StatusOK, &supportView)
+		assertSupportViewUsers(t, supportView.Users, victimAdminID, victimMemberID)
+		assertSupportAuditTrail(t, ctx, database, victimTenantID, platformTenantID, platformAdminID)
+
+		doJSON(t, platformAdmin, http.MethodDelete, baseURL+"/api/v1/platform/tenants/"+victimTenantID+"/support-access", nil, http.StatusOK, nil)
+		doJSON(t, platformAdmin, http.MethodGet, baseURL+"/api/v1/platform/tenants/"+victimTenantID+"/support-view", nil, http.StatusForbidden, nil)
+		doJSON(t, platformAdmin, http.MethodPost, baseURL+"/api/v1/platform/tenants/"+platformTenantID+"/support-access", map[string]any{"reason": "Home tenant verification", "durationMinutes": 15}, http.StatusConflict, nil)
+	})
+
 	_ = attackerAdminID
-	_ = attackerGuestID
 }
 
 func createIsolationTenant(t *testing.T, ctx context.Context, database *sql.DB, slug, name string) (string, string) {
@@ -247,7 +303,7 @@ func cleanupStaleIsolationTenants(t *testing.T, database *sql.DB) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	rows, err := database.QueryContext(ctx, `SELECT id FROM tenants WHERE slug ~ '^(victim|attacker)-[0-9]+$'`)
+	rows, err := database.QueryContext(ctx, `SELECT id FROM tenants WHERE slug ~ '^(victim|attacker|platform)-[0-9]+$'`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,5 +333,44 @@ func assertNotificationUnread(t *testing.T, ctx context.Context, database *sql.D
 	var unread bool
 	if err := database.QueryRowContext(ctx, `SELECT read_at IS NULL FROM notifications WHERE tenant_id=$1 AND id=$2`, tenantID, notificationID).Scan(&unread); err != nil || !unread {
 		t.Fatalf("foreign notification was mutated: unread=%v err=%v", unread, err)
+	}
+}
+
+func assertExternalParticipant(t *testing.T, ctx context.Context, database *sql.DB, meetingID, externalTenantID, externalUserID string) {
+	t.Helper()
+	var count int
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM meeting_participants WHERE meeting_id=$1 AND external_tenant_id=$2 AND external_user_id=$3 AND user_id IS NULL`, meetingID, externalTenantID, externalUserID).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("external participant identity was not tenant scoped: count=%d err=%v", count, err)
+	}
+}
+
+func assertSupportViewUsers(t *testing.T, users []struct {
+	ID string `json:"id"`
+}, expectedIDs ...string) {
+	t.Helper()
+	actual := make(map[string]bool, len(users))
+	for _, user := range users {
+		actual[user.ID] = true
+	}
+	for _, expectedID := range expectedIDs {
+		if !actual[expectedID] {
+			t.Fatalf("support view omitted victim user %s", expectedID)
+		}
+	}
+}
+
+func assertCrossTenantAudit(t *testing.T, ctx context.Context, database *sql.DB, tenantID, actorTenantID, actorID, action string) {
+	t.Helper()
+	var count int
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM audit_events WHERE tenant_id=$1 AND actor_tenant_id=$2 AND actor_user_id=$3 AND action=$4`, tenantID, actorTenantID, actorID, action).Scan(&count); err != nil || count < 1 {
+		t.Fatalf("cross-tenant audit event missing: action=%s count=%d err=%v", action, count, err)
+	}
+}
+
+func assertSupportAuditTrail(t *testing.T, ctx context.Context, database *sql.DB, tenantID, actorTenantID, actorID string) {
+	t.Helper()
+	var starts, views int
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FILTER (WHERE action='platform.support.start'),COUNT(*) FILTER (WHERE action='platform.support.view') FROM audit_events WHERE tenant_id=$1 AND actor_tenant_id=$2 AND actor_user_id=$3`, tenantID, actorTenantID, actorID).Scan(&starts, &views); err != nil || starts < 1 || views < 1 {
+		t.Fatalf("support access audit trail incomplete: starts=%d views=%d err=%v", starts, views, err)
 	}
 }

@@ -22,14 +22,12 @@ func (api *API) leaveMeeting(writer http.ResponseWriter, request *http.Request, 
 	}
 	affected, _ := result.RowsAffected()
 	if affected > 0 {
-		actorID := user.ID
 		metadata := map[string]any{}
 		if meeting.TenantID != user.TenantID {
-			actorID = ""
 			metadata["externalUserId"] = user.ID
 			metadata["externalTenantId"] = user.TenantID
 		}
-		_ = api.writeAuditEvent(request.Context(), request, meeting.TenantID, actorID, "participant.leave", "participant", user.ID, metadata)
+		_ = api.writeAuditEvent(request.Context(), request, meeting.TenantID, user.ID, "participant.leave", "participant", user.ID, metadata)
 	}
 	writer.WriteHeader(http.StatusNoContent)
 }
