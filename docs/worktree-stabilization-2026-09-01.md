@@ -51,9 +51,9 @@ The first GitHub Actions run for checkpoint `cdc5071` exposed two CI-only
 issues that were not present in the local long-lived stack:
 
 - Trivy detected `CVE-2026-14456` in Alpine `libcrypto3` and `libssl3`
-  `3.5.7-r0`. The API runtime image now applies Alpine security updates during
-  its build, installing the fixed `3.5.8-r0` packages. A local scan of the
-  rebuilt image reported 0 HIGH/CRITICAL findings.
+  `3.5.7-r0`. The API and web runtime images now apply Alpine security updates
+  during their builds, installing the fixed `3.5.8-r0` packages. Local scans
+  of the rebuilt images reported 0 HIGH/CRITICAL findings.
 - The integration job copied documented placeholder secrets from
   `.env.example`, which the runtime secret validator correctly rejected. The
   workflow now replaces them with CI-only values before starting the isolated
