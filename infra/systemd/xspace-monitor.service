@@ -1,0 +1,14 @@
+[Unit]
+Description=Xspace production health monitor
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/cankonix-node/apps/xpace
+EnvironmentFile=/root/cankonix-node/apps/xpace/.env
+ExecStart=/bin/sh /root/cankonix-node/apps/xpace/scripts/monitor-production.sh
+User=root
+
+[Install]
+WantedBy=multi-user.target

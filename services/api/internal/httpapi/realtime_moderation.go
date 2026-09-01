@@ -23,16 +23,23 @@ func (api *API) syncParticipantAction(ctx context.Context, meeting meetingRespon
 	if err != nil {
 		return err
 	}
-	identity := userID + ":" + participantID
+	identity := userID
+	response, listErr := client.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: meeting.RoomName})
+	if listErr == nil {
+		for _, participant := range response.Participants {
+			if logicalRealtimeIdentity(participant.Identity) == userID {
+				identity = participant.Identity
+				break
+			}
+		}
+	}
 	switch action {
 	case "remove":
 		_, err = client.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: meeting.RoomName, Identity: identity})
 	case "promote":
 		_, err = client.UpdateParticipant(ctx, &livekit.UpdateParticipantRequest{Room: meeting.RoomName, Identity: identity, Metadata: `{"role":"CO_HOST"}`, Permission: &livekit.ParticipantPermission{CanPublish: true, CanSubscribe: true, CanPublishData: true, CanUpdateMetadata: true}})
 	case "mute":
-		var response *livekit.ListParticipantsResponse
-		response, err = client.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: meeting.RoomName})
-		if err == nil {
+		if listErr == nil {
 			found := false
 			for _, participant := range response.Participants {
 				if participant.Identity == identity {
@@ -51,6 +58,7 @@ func (api *API) syncParticipantAction(ctx context.Context, meeting meetingRespon
 				return fmt.Errorf("audio track not found")
 			}
 		}
+		err = listErr
 	}
 	return err
 }
@@ -61,7 +69,7 @@ func (api *API) moderateMeeting(writer http.ResponseWriter, request *http.Reques
 		errorJSON(writer, 404, "MEETING_NOT_FOUND", "meeting code is invalid")
 		return
 	}
-	if meeting.HostID != user.ID {
+	if meeting.HostID != user.ID && !api.hasPermission(request.Context(), user, "meeting.moderate") {
 		errorJSON(writer, 403, "HOST_REQUIRED", "only the host can change meeting policy")
 		return
 	}

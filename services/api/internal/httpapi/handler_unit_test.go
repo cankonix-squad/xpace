@@ -31,8 +31,8 @@ func TestLoginSuccessCreatesSignedSessionAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mock.ExpectQuery("SELECT u.id,u.tenant_id").WithArgs("cankonix", "admin").WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "slug", "name", "email", "username", "display_name", "role", "password_hash", "status"}).AddRow("user-1", "tenant-1", "cankonix", "Cankonix", "admin@example.com", "admin", "Admin", "SUPER_ADMIN", hash, "ACTIVE"))
-	mock.ExpectExec("INSERT INTO sessions").WithArgs("user-1", sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery("SELECT u.id,u.tenant_id").WithArgs("cankonix", "admin").WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "slug", "name", "email", "username", "display_name", "role", "password_hash", "status", "platform_status", "mfa_enabled", "secret_encrypted", "recovery_hashes"}).AddRow("user-1", "tenant-1", "cankonix", "Cankonix", "admin@example.com", "admin", "Admin", "SUPER_ADMIN", hash, "ACTIVE", "ACTIVE", false, "", []byte("[]")))
+	mock.ExpectExec("INSERT INTO sessions").WithArgs("user-1", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "", "Browser on Unknown device").WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("INSERT INTO audit_events").WillReturnResult(sqlmock.NewResult(1, 1))
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"Tenant":"cankonix","Identity":"admin","Password":"Strong!Password#123"}`))
 	request.Header.Set("Content-Type", "application/json")
@@ -73,7 +73,7 @@ func TestLoginUnknownAccountIsGenericAndAuditedWhenTenantExists(t *testing.T) {
 func TestRequireSessionAcceptsValidSignedCookie(t *testing.T) {
 	api, mock := mockAPI(t)
 	t.Setenv("API_SESSION_SIGNING_KEY", strings.Repeat("s", 32))
-	mock.ExpectQuery("SELECT u.id,u.tenant_id").WithArgs(hashToken("opaque")).WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "slug", "name", "email", "username", "display_name", "role"}).AddRow("user-1", "tenant-1", "cankonix", "Cankonix", "a@example.com", "admin", "Admin", "SUPER_ADMIN"))
+	mock.ExpectQuery("SELECT u.id,u.tenant_id").WithArgs(hashToken("opaque")).WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "slug", "name", "email", "username", "display_name", "role", "platform_status"}).AddRow("user-1", "tenant-1", "cankonix", "Cankonix", "a@example.com", "admin", "Admin", "SUPER_ADMIN", "ACTIVE"))
 	called := false
 	handler := api.requireSession(func(writer http.ResponseWriter, _ *http.Request, user currentUser) {
 		called = user.ID == "user-1"
@@ -105,6 +105,9 @@ func TestRequireSessionRejectsTamperedCookieWithoutDatabase(t *testing.T) {
 
 func TestCreateMeetingPersistsTenantPolicyAndAudit(t *testing.T) {
 	api, mock := mockAPI(t)
+	mock.ExpectQuery("SELECT p.key,p.name").WithArgs("tenant-1").WillReturnRows(sqlmock.NewRows([]string{"key", "name", "description", "price", "trial_days", "max_users", "max_meetings", "max_duration", "max_storage", "max_recordings", "features", "status", "trial_ends", "period_ends", "cancel"}).AddRow("BUSINESS", "Business", "Business plan", 499000, 14, 25, 1000, 240, int64(107374182400), 500, []byte(`{"recording":true,"drive":true}`), "ACTIVE", nil, time.Now().Add(24*time.Hour), false))
+	mock.ExpectQuery("SELECT entitlement_key,enabled,limit_value").WithArgs("tenant-1").WillReturnRows(sqlmock.NewRows([]string{"key", "enabled", "limit"}))
+	mock.ExpectQuery("FROM users WHERE tenant_id=\\$1").WithArgs("tenant-1").WillReturnRows(sqlmock.NewRows([]string{"users", "meetings", "storage", "recordings"}).AddRow(1, 0, 0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT guest_access_enabled,waiting_room_default,recording_enabled,screen_share_enabled FROM tenant_meeting_policies WHERE tenant_id=$1")).WithArgs("tenant-1").WillReturnRows(sqlmock.NewRows([]string{"guest", "waiting", "recording", "screen"}).AddRow(true, true, true, true))
 	mock.ExpectQuery("INSERT INTO meetings").WithArgs("tenant-1", "user-1", sqlmock.AnyArg(), sqlmock.AnyArg(), "Planning", nil, "WAITING", true).WillReturnRows(sqlmock.NewRows([]string{"id", "status", "created_at"}).AddRow("meeting-1", "WAITING", time.Now()))
 	mock.ExpectExec("INSERT INTO audit_events").WillReturnResult(sqlmock.NewResult(1, 1))
@@ -123,20 +126,53 @@ func TestCreateMeetingPersistsTenantPolicyAndAudit(t *testing.T) {
 func TestListMeetingsAndTenantScopedLookup(t *testing.T) {
 	api, mock := mockAPI(t)
 	now := time.Now()
-	mock.ExpectQuery("FROM meetings WHERE tenant_id=\\$1").WithArgs("tenant-1").WillReturnRows(sqlmock.NewRows([]string{"id", "title", "join_code", "room_name", "status", "scheduled_at", "waiting_room_enabled", "host_id", "created_at"}).AddRow("meeting-1", "Planning", "ABC-DEF-GHI", "room-1", "WAITING", nil, true, "user-1", now))
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM meetings").WithArgs("tenant-1").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery("FROM meetings WHERE tenant_id=\\$1").WithArgs("tenant-1", 10, 0).WillReturnRows(sqlmock.NewRows([]string{"id", "title", "join_code", "room_name", "status", "scheduled_at", "waiting_room_enabled", "host_id", "created_at"}).AddRow("meeting-1", "Planning", "ABC-DEF-GHI", "room-1", "WAITING", nil, true, "user-1", now))
 	writer := httptest.NewRecorder()
 	api.listMeetings(writer, httptest.NewRequest(http.MethodGet, "/api/v1/meetings", nil), currentUser{TenantID: "tenant-1"})
 	if writer.Code != http.StatusOK || !strings.Contains(writer.Body.String(), "ABC-DEF-GHI") {
 		t.Fatalf("list meetings returned %d: %s", writer.Code, writer.Body.String())
 	}
 
-	mock.ExpectQuery("FROM meetings WHERE tenant_id=\\$1 AND join_code=\\$2").WithArgs("tenant-1", "ZZZ-ZZZ-ZZZ").WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("FROM meetings m JOIN tenants").WithArgs("ZZZ-ZZZ-ZZZ").WillReturnError(sql.ErrNoRows)
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/meetings/ZZZ-ZZZ-ZZZ", nil)
 	request.SetPathValue("joinCode", "ZZZ-ZZZ-ZZZ")
 	writer = httptest.NewRecorder()
 	api.getMeeting(writer, request, currentUser{TenantID: "tenant-1"})
 	if writer.Code != http.StatusNotFound {
 		t.Fatalf("missing meeting returned %d", writer.Code)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDeleteMeetingSoftDeletesOwnedMeeting(t *testing.T) {
+	api, mock := mockAPI(t)
+	mock.ExpectQuery("SELECT id,host_id,status::text FROM meetings").WithArgs("tenant-1", "ABC-DEF-GHI").WillReturnRows(sqlmock.NewRows([]string{"id", "host_id", "status"}).AddRow("meeting-1", "user-1", "WAITING"))
+	mock.ExpectExec("UPDATE meetings SET status='CANCELLED'").WithArgs("meeting-1", "tenant-1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO audit_events").WillReturnResult(sqlmock.NewResult(1, 1))
+	request := httptest.NewRequest(http.MethodDelete, "/api/v1/meetings/ABC-DEF-GHI", nil)
+	request.SetPathValue("joinCode", "ABC-DEF-GHI")
+	writer := httptest.NewRecorder()
+	api.deleteMeeting(writer, request, currentUser{ID: "user-1", TenantID: "tenant-1", Role: roleMember})
+	if writer.Code != http.StatusNoContent {
+		t.Fatalf("delete meeting returned %d: %s", writer.Code, writer.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDeleteMeetingRejectsNonOwnerMember(t *testing.T) {
+	api, mock := mockAPI(t)
+	mock.ExpectQuery("SELECT id,host_id,status::text FROM meetings").WithArgs("tenant-1", "ABC-DEF-GHI").WillReturnRows(sqlmock.NewRows([]string{"id", "host_id", "status"}).AddRow("meeting-1", "host-1", "WAITING"))
+	request := httptest.NewRequest(http.MethodDelete, "/api/v1/meetings/ABC-DEF-GHI", nil)
+	request.SetPathValue("joinCode", "ABC-DEF-GHI")
+	writer := httptest.NewRecorder()
+	api.deleteMeeting(writer, request, currentUser{ID: "member-1", TenantID: "tenant-1", Role: roleMember})
+	if writer.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", writer.Code)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

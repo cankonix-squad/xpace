@@ -30,6 +30,7 @@ services:
   api:
     environment:
       COOKIE_SECURE: "true"
+      XPACE_PUBLIC_URL: https://${XPACE_DOMAIN:?Set XPACE_DOMAIN in .env}
       LIVEKIT_WS_URL: wss://${LIVEKIT_DOMAIN:?Set LIVEKIT_DOMAIN in .env}
       RECORDING_S3_PUBLIC_ENDPOINT: https://${LIVEKIT_DOMAIN:?Set LIVEKIT_DOMAIN in .env}
     networks:

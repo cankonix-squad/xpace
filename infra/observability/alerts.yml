@@ -1,0 +1,72 @@
+groups:
+  - name: xspace-availability
+    rules:
+      - alert: XspaceAPIDown
+        expr: up{job="xspace-api"} == 0
+        for: 2m
+        labels: {severity: critical, subsystem: application}
+        annotations:
+          summary: Xspace API metrics target is unavailable
+          description: Prometheus has not been able to scrape the API for more than two minutes.
+      - alert: XspaceMetricsDatabaseScrapeFailed
+        expr: xpace_platform_metrics_scrape_error > 0
+        for: 2m
+        labels: {severity: critical, subsystem: database}
+        annotations:
+          summary: Xspace operational metric query is failing
+          description: API health may remain green while the operational database snapshot cannot be collected.
+
+  - name: xspace-api-performance
+    rules:
+      - alert: XspaceAPIHighErrorRate
+        expr: sum(rate(xpace_api_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(xpace_api_http_requests_total[5m])), 0.001) > 0.02
+        for: 10m
+        labels: {severity: warning, subsystem: application}
+        annotations:
+          summary: Xspace API 5xx rate exceeds 2 percent
+          description: The rolling five-minute server error ratio has remained above the production threshold.
+      - alert: XspaceAPIHighLatency
+        expr: histogram_quantile(0.95, sum by (le) (rate(xpace_api_http_request_duration_seconds_bucket[5m]))) > 2
+        for: 10m
+        labels: {severity: warning, subsystem: application}
+        annotations:
+          summary: Xspace API p95 latency exceeds two seconds
+          description: The rolling five-minute p95 latency has remained above the production threshold.
+
+  - name: xspace-capacity
+    rules:
+      - alert: XspaceDatabasePoolSaturation
+        expr: xpace_database_connections{state="in_use"} / clamp_min(xpace_database_connections{state="maximum"}, 1) > 0.8
+        for: 10m
+        labels: {severity: warning, subsystem: database}
+        annotations:
+          summary: PostgreSQL connection pool exceeds 80 percent
+          description: Sustained pool saturation can delay meeting and collaboration requests.
+      - alert: XspaceDatabaseConnectionWaiting
+        expr: rate(xpace_database_connection_wait_total[5m]) > 0.1
+        for: 10m
+        labels: {severity: warning, subsystem: database}
+        annotations:
+          summary: Requests are waiting for PostgreSQL connections
+          description: Connection waits have remained elevated for ten minutes.
+      - alert: XspaceRecordingFailures
+        expr: xpace_platform_failed_recordings > 0
+        for: 5m
+        labels: {severity: warning, subsystem: recording}
+        annotations:
+          summary: Failed recordings require attention
+          description: At least one recording remains in FAILED state.
+      - alert: XspaceWaitingRoomBacklog
+        expr: xpace_platform_waiting_participants > 20
+        for: 15m
+        labels: {severity: warning, subsystem: media}
+        annotations:
+          summary: Waiting-room participant backlog is elevated
+          description: More than twenty participants have remained in waiting rooms for fifteen minutes.
+      - alert: XspaceStoredContentHigh
+        expr: sum(xpace_platform_storage_bytes) > 8e+10
+        for: 30m
+        labels: {severity: warning, subsystem: storage}
+        annotations:
+          summary: Xspace stored content exceeds 80 GB
+          description: Review storage capacity and retention policies before the host disk approaches exhaustion.

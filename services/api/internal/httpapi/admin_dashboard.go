@@ -21,6 +21,20 @@ type adminUsageSummary struct {
 	RecordingStorageBytes int64 `json:"recordingStorageBytes"`
 }
 
+type adminOperationalSummary struct {
+	ActiveRooms         int   `json:"activeRooms"`
+	WaitingParticipants int   `json:"waitingParticipants"`
+	JoinedParticipants  int   `json:"joinedParticipants"`
+	FailedRecordings    int   `json:"failedRecordings"`
+	DriveFiles          int   `json:"driveFiles"`
+	Rooms               int   `json:"rooms"`
+	UpcomingEvents      int   `json:"upcomingEvents"`
+	ChatMessages24Hours int   `json:"chatMessages24Hours"`
+	DriveStorageBytes   int64 `json:"driveStorageBytes"`
+	ChatStorageBytes    int64 `json:"chatStorageBytes"`
+	TotalStorageBytes   int64 `json:"totalStorageBytes"`
+}
+
 type adminDailyMeeting struct {
 	Date  string `json:"date"`
 	Count int    `json:"count"`
@@ -37,7 +51,7 @@ type adminRecentMeeting struct {
 }
 
 func (api *API) adminDashboard(writer http.ResponseWriter, request *http.Request, user currentUser) {
-	if !user.Role.isWorkspaceAdmin() {
+	if !api.hasPermission(request.Context(), user, "analytics.read") {
 		errorJSON(writer, http.StatusForbidden, "ADMIN_REQUIRED", "workspace administrator access is required")
 		return
 	}
@@ -76,14 +90,27 @@ func (api *API) adminDashboard(writer http.ResponseWriter, request *http.Request
 		return
 	}
 	databaseStats := api.database.Stats()
+	var operations adminOperationalSummary
+	if err = api.database.QueryRowContext(request.Context(), `SELECT (SELECT COUNT(*) FROM meetings WHERE tenant_id=$1 AND status='ACTIVE'),(SELECT COUNT(*) FROM meeting_participants WHERE tenant_id=$1 AND status='WAITING_ROOM'),(SELECT COUNT(*) FROM meeting_participants WHERE tenant_id=$1 AND status='JOINED'),(SELECT COUNT(*) FROM recordings WHERE tenant_id=$1 AND status='FAILED'),(SELECT COUNT(*) FROM drive_nodes WHERE tenant_id=$1 AND kind='FILE' AND deleted_at IS NULL),(SELECT COUNT(*) FROM workspace_rooms WHERE tenant_id=$1),(SELECT COUNT(*) FROM calendar_events WHERE tenant_id=$1 AND ends_at>=NOW()),(SELECT COUNT(*) FROM chat_messages WHERE tenant_id=$1 AND created_at>=NOW()-INTERVAL '24 hours'),(SELECT COALESCE(SUM(size_bytes),0) FROM drive_nodes WHERE tenant_id=$1 AND kind='FILE' AND deleted_at IS NULL),(SELECT COALESCE(SUM(size_bytes),0) FROM chat_attachments WHERE tenant_id=$1),(SELECT COALESCE(SUM(size_bytes),0) FROM drive_nodes WHERE tenant_id=$1 AND kind='FILE' AND deleted_at IS NULL)+(SELECT COALESCE(SUM(size_bytes),0) FROM chat_attachments WHERE tenant_id=$1)+(SELECT COALESCE(SUM(size_bytes),0) FROM recordings WHERE tenant_id=$1 AND status='READY')`, user.TenantID).Scan(&operations.ActiveRooms, &operations.WaitingParticipants, &operations.JoinedParticipants, &operations.FailedRecordings, &operations.DriveFiles, &operations.Rooms, &operations.UpcomingEvents, &operations.ChatMessages24Hours, &operations.DriveStorageBytes, &operations.ChatStorageBytes, &operations.TotalStorageBytes); err != nil {
+		errorJSON(writer, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load operational telemetry")
+		return
+	}
+	var errors24Hours int
+	if err = api.database.QueryRowContext(request.Context(), `SELECT COUNT(*) FROM error_events WHERE tenant_id=$1 AND created_at>=NOW()-INTERVAL '24 hours'`, user.TenantID).Scan(&errors24Hours); err != nil {
+		errorJSON(writer, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load error telemetry")
+		return
+	}
 	respondJSON(writer, http.StatusOK, map[string]any{
 		"tenant":         map[string]string{"id": user.TenantID, "slug": user.TenantSlug, "name": user.TenantName},
 		"meetings":       meetings,
 		"usage":          usage,
 		"dailyMeetings":  daily,
 		"recentMeetings": recent,
+		"observability":  map[string]any{"media": operations, "database": map[string]any{"openConnections": databaseStats.OpenConnections, "inUse": databaseStats.InUse, "idle": databaseStats.Idle, "maxOpenConnections": databaseStats.MaxOpenConnections, "waitCount": databaseStats.WaitCount, "waitDurationMs": databaseStats.WaitDuration.Milliseconds()}},
 		"health": map[string]any{
 			"status": "operational", "api": "ok", "postgres": "ok",
+			"release":                 currentRelease(),
+			"errors24Hours":           errors24Hours,
 			"databaseOpenConnections": databaseStats.OpenConnections,
 			"checkedAt":               time.Now().UTC(),
 		},

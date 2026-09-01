@@ -3,29 +3,34 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"time"
 
 	"github.com/livekit/protocol/livekit"
 	lksdk "github.com/livekit/server-sdk-go/v2"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 )
 
 func main() {
 	key, secret := required("LIVEKIT_API_KEY"), required("LIVEKIT_API_SECRET")
-	url := envOr("LIVEKIT_API_URL", "http://127.0.0.1:7880")
+	liveKitURL := envOr("LIVEKIT_API_URL", "http://127.0.0.1:7880")
 	roomName := fmt.Sprintf("xpace-recording-smoke-%d", time.Now().Unix())
 	objectKey := fmt.Sprintf("smoke-tests/%s.mp4", roomName)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	roomClient := lksdk.NewRoomServiceClient(url, key, secret)
+	roomClient := lksdk.NewRoomServiceClient(liveKitURL, key, secret)
 	if _, err := roomClient.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: roomName, EmptyTimeout: 60}); err != nil {
 		panic(fmt.Errorf("create room: %w", err))
 	}
 	defer roomClient.DeleteRoom(context.Background(), &livekit.DeleteRoomRequest{Room: roomName})
-	participant, err := lksdk.ConnectToRoom(url, lksdk.ConnectInfo{
+	participant, err := lksdk.ConnectToRoom(liveKitURL, lksdk.ConnectInfo{
 		APIKey: key, APISecret: secret, RoomName: roomName, ParticipantIdentity: "recording-smoke-host",
 	}, nil)
 	if err != nil {
@@ -54,7 +59,7 @@ func main() {
 		}
 	}()
 
-	egress := lksdk.NewEgressClient(url, key, secret)
+	egress := lksdk.NewEgressClient(liveKitURL, key, secret)
 	info, err := egress.StartRoomCompositeEgress(ctx, &livekit.RoomCompositeEgressRequest{
 		RoomName: roomName,
 		Layout:   "grid",
@@ -77,8 +82,68 @@ func main() {
 	if _, err = egress.StopEgress(ctx, &livekit.StopEgressRequest{EgressId: info.EgressId}); err != nil {
 		panic(fmt.Errorf("stop egress: %w", err))
 	}
-	time.Sleep(5 * time.Second)
-	fmt.Printf("recording smoke completed: %s\n", objectKey)
+	verifyRecordingObject(ctx, objectKey)
+	fmt.Printf("recording smoke completed: create, signed download, and delete passed for %s\n", objectKey)
+}
+
+func verifyRecordingObject(ctx context.Context, objectKey string) {
+	accessKey, secret := envOr("MINIO_ROOT_USER", "xpace-local"), required("MINIO_ROOT_PASSWORD")
+	bucket := envOr("RECORDING_S3_BUCKET", "xpace-recordings")
+	internal := objectClient(envOr("RECORDING_S3_ENDPOINT", "http://minio:9000"), accessKey, secret)
+	var object minio.ObjectInfo
+	var err error
+	for deadline := time.Now().Add(35 * time.Second); time.Now().Before(deadline); {
+		object, err = internal.StatObject(ctx, bucket, objectKey, minio.StatObjectOptions{})
+		if err == nil && object.Size > 0 {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	if err != nil || object.Size == 0 {
+		panic(fmt.Errorf("recorded object was not finalized: %w", err))
+	}
+
+	public := objectClient(required("RECORDING_S3_PUBLIC_ENDPOINT"), accessKey, secret)
+	signedURL, err := public.PresignedGetObject(ctx, bucket, objectKey, 5*time.Minute, nil)
+	if err != nil {
+		panic(fmt.Errorf("issue signed recording URL: %w", err))
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, signedURL.String(), nil)
+	if err != nil {
+		panic(fmt.Errorf("create signed recording request: %w", err))
+	}
+	request.Header.Set("Range", "bytes=0-1023")
+	response, err := (&http.Client{Timeout: 20 * time.Second}).Do(request)
+	if err != nil {
+		panic(fmt.Errorf("download signed recording URL: %w", err))
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusPartialContent {
+		panic(fmt.Errorf("signed recording URL returned %s", response.Status))
+	}
+	if bytesRead, readErr := io.Copy(io.Discard, io.LimitReader(response.Body, 1024)); readErr != nil || bytesRead == 0 {
+		panic(fmt.Errorf("read signed recording response: bytes=%d err=%w", bytesRead, readErr))
+	}
+	if err = internal.RemoveObject(ctx, bucket, objectKey, minio.RemoveObjectOptions{}); err != nil {
+		panic(fmt.Errorf("delete smoke recording: %w", err))
+	}
+	if _, err = internal.StatObject(ctx, bucket, objectKey, minio.StatObjectOptions{}); err == nil {
+		panic("deleted smoke recording is still available")
+	}
+}
+
+func objectClient(endpoint, accessKey, secret string) *minio.Client {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Host == "" || parsed.Path != "" && parsed.Path != "/" {
+		panic(fmt.Errorf("invalid recording endpoint %q", endpoint))
+	}
+	client, err := minio.New(parsed.Host, &minio.Options{
+		Creds: credentials.NewStaticV4(accessKey, secret, ""), Secure: parsed.Scheme == "https",
+	})
+	if err != nil {
+		panic(fmt.Errorf("create recording object client: %w", err))
+	}
+	return client
 }
 
 func required(name string) string {

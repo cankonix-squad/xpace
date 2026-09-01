@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"os"
 	"time"
@@ -11,7 +12,7 @@ import (
 )
 
 func (api *API) liveKitToken(writer http.ResponseWriter, request *http.Request, user currentUser) {
-	meeting, err := api.findMeeting(request, user)
+	meeting, err := api.findMeetingForJoin(request)
 	if err == sql.ErrNoRows {
 		errorJSON(writer, http.StatusNotFound, "MEETING_NOT_FOUND", "meeting code is invalid")
 		return
@@ -21,7 +22,11 @@ func (api *API) liveKitToken(writer http.ResponseWriter, request *http.Request, 
 		return
 	}
 	var participantID, status string
-	err = api.database.QueryRowContext(request.Context(), `SELECT id,status FROM meeting_participants WHERE meeting_id=$1 AND user_id=$2 AND tenant_id=$3 ORDER BY created_at DESC LIMIT 1`, meeting.ID, user.ID, user.TenantID).Scan(&participantID, &status)
+	err = api.database.QueryRowContext(request.Context(), `
+		SELECT id,status FROM meeting_participants
+		WHERE meeting_id=$1 AND tenant_id=$2
+		  AND ((user_id=$3 AND $2=$4) OR (external_user_id=$3 AND external_tenant_id=$4))
+		ORDER BY created_at DESC LIMIT 1`, meeting.ID, meeting.TenantID, user.ID, user.TenantID).Scan(&participantID, &status)
 	if err == sql.ErrNoRows {
 		errorJSON(writer, http.StatusForbidden, "JOIN_REQUIRED", "complete the pre-join flow first")
 		return
@@ -39,7 +44,7 @@ func (api *API) liveKitToken(writer http.ResponseWriter, request *http.Request, 
 		errorJSON(writer, http.StatusServiceUnavailable, "REALTIME_UNAVAILABLE", "realtime service is not configured")
 		return
 	}
-	policy, err := api.loadMeetingPolicy(request.Context(), user.TenantID)
+	policy, err := api.loadMeetingPolicy(request.Context(), meeting.TenantID)
 	if err != nil {
 		errorJSON(writer, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load meeting policy")
 		return
@@ -50,13 +55,29 @@ func (api *API) liveKitToken(writer http.ResponseWriter, request *http.Request, 
 		sources = append(sources, livekit.TrackSource_SCREEN_SHARE, livekit.TrackSource_SCREEN_SHARE_AUDIO)
 	}
 	grant.SetCanPublishSources(sources)
-	token := auth.NewAccessToken(apiKey, apiSecret).SetIdentity(user.ID + ":" + participantID).SetName(user.DisplayName).SetValidFor(15 * time.Minute).SetVideoGrant(grant)
+	participantMetadata := map[string]string{}
+	var hasAvatar bool
+	if queryErr := api.database.QueryRowContext(request.Context(), `SELECT EXISTS(SELECT 1 FROM user_profiles WHERE user_id=$1 AND tenant_id=$2 AND NULLIF(BTRIM(avatar_url),'') IS NOT NULL)`, user.ID, user.TenantID).Scan(&hasAvatar); queryErr == nil && hasAvatar {
+		participantMetadata["avatarUrl"] = "/api/v1/meetings/" + meeting.JoinCode + "/participants/" + participantID + "/avatar"
+	}
+	metadataJSON, _ := json.Marshal(participantMetadata)
+	// Keep the realtime identity stable across leave/rejoin cycles. LiveKit
+	// replaces an older connection that uses the same identity, which prevents
+	// one account from appearing twice when a browser reconnects quickly.
+	token := auth.NewAccessToken(apiKey, apiSecret).SetIdentity(user.ID).SetName(user.DisplayName).SetMetadata(string(metadataJSON)).SetValidFor(15 * time.Minute).SetVideoGrant(grant)
 	jwt, err := token.ToJWT()
 	if err != nil {
 		errorJSON(writer, http.StatusInternalServerError, "INTERNAL_ERROR", "could not issue realtime token")
 		return
 	}
-	_ = api.writeAuditEvent(request.Context(), request, user.TenantID, user.ID, "realtime.token.issue", "meeting", meeting.ID, map[string]any{"participantId": participantID})
+	actorID := user.ID
+	metadata := map[string]any{"participantId": participantID}
+	if meeting.TenantID != user.TenantID {
+		actorID = ""
+		metadata["externalUserId"] = user.ID
+		metadata["externalTenantId"] = user.TenantID
+	}
+	_ = api.writeAuditEvent(request.Context(), request, meeting.TenantID, actorID, "realtime.token.issue", "meeting", meeting.ID, metadata)
 	respondJSON(writer, http.StatusOK, map[string]any{"token": jwt, "serverUrl": envOr("LIVEKIT_WS_URL", "ws://localhost:7880"), "roomName": meeting.RoomName, "screenShareEnabled": policy.ScreenShareEnabled})
 }
 

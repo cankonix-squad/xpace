@@ -30,10 +30,16 @@ echo "PASS: TLS Compose configuration is valid"
 docker compose -f compose.yaml -f compose.edge.yaml config -q
 echo "PASS: shared-edge Compose configuration is valid"
 
-for file in apps/web/Dockerfile services/api/Dockerfile compose.yaml compose.proxy.yaml compose.edge.yaml; do
+for file in apps/web/Dockerfile services/api/Dockerfile compose.yaml compose.proxy.yaml compose.edge.yaml scripts/backup.sh scripts/restore-test.sh scripts/restore.sh docs/disaster-recovery.md; do
   test -s "$file" || { echo "FAIL: missing deployment file: $file"; exit 1; }
 done
 echo "PASS: deployment manifests and images are present"
+
+for script in scripts/backup.sh scripts/restore-test.sh scripts/restore.sh; do
+  sh -n "$script"
+  test -x "$script" || { echo "FAIL: recovery script is not executable: $script"; exit 1; }
+done
+echo "PASS: backup and restore scripts are executable and syntactically valid"
 
 if ! grep -Fq 'USER nextjs' apps/web/Dockerfile || ! grep -Fq 'USER xpace' services/api/Dockerfile; then
   echo "FAIL: application containers must run as non-root users"

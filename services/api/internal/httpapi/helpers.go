@@ -61,9 +61,36 @@ func hashToken(token string) string {
 }
 
 func clientIP(request *http.Request) string {
-	host, _, err := net.SplitHostPort(request.RemoteAddr)
+	remote := normalizedIP(request.RemoteAddr)
+	remoteIP := net.ParseIP(remote)
+	if remoteIP == nil || !isTrustedProxyIP(remoteIP) {
+		return remote
+	}
+	forwarded := strings.Split(request.Header.Get("X-Forwarded-For"), ",")
+	for index := len(forwarded) - 1; index >= 0; index-- {
+		candidate := net.ParseIP(strings.TrimSpace(forwarded[index]))
+		if isPublicNetworkIP(candidate) {
+			return candidate.String()
+		}
+	}
+	if candidate := net.ParseIP(strings.TrimSpace(request.Header.Get("X-Real-IP"))); isPublicNetworkIP(candidate) {
+		return candidate.String()
+	}
+	return remote
+}
+
+func normalizedIP(address string) string {
+	host, _, err := net.SplitHostPort(address)
 	if err == nil {
 		return strings.Trim(host, "[]")
 	}
-	return strings.Trim(request.RemoteAddr, "[]")
+	return strings.Trim(address, "[]")
+}
+
+func isTrustedProxyIP(ip net.IP) bool {
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast())
+}
+
+func isPublicNetworkIP(ip net.IP) bool {
+	return ip != nil && ip.IsGlobalUnicast() && !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast()
 }

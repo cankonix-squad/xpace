@@ -26,6 +26,13 @@ func main() {
 		os.Exit(1)
 	}
 	defer database.Close()
+	workerContext, stopWorker := context.WithCancel(context.Background())
+	defer stopWorker()
+	httpapi.StartGovernanceRetentionWorker(workerContext, database, logger)
+	httpapi.StartDataExportWorker(workerContext, database, logger)
+	httpapi.StartEmailWorker(workerContext, database, logger)
+	httpapi.StartMeetingDurationWorker(workerContext, database, logger)
+	httpapi.StartIncidentEscalationWorker(workerContext, database, logger)
 
 	server := &http.Server{
 		Addr:              ":8080",
@@ -51,6 +58,7 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	stopWorker()
 
 	context, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

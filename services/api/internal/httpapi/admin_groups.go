@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -15,7 +16,7 @@ type adminGroupResponse struct {
 }
 
 func (api *API) adminGroups(writer http.ResponseWriter, request *http.Request, actor currentUser) {
-	if !actor.Role.isWorkspaceAdmin() {
+	if !api.hasPermission(request.Context(), actor, "groups.manage") {
 		errorJSON(writer, http.StatusForbidden, "ADMIN_REQUIRED", "workspace administrator access is required")
 		return
 	}
@@ -25,7 +26,7 @@ func (api *API) adminGroups(writer http.ResponseWriter, request *http.Request, a
 	}
 	rows, err := api.database.QueryContext(request.Context(), `
 		SELECT g.id,g.name,g.description,COUNT(gm.user_id),
-		       COALESCE(ARRAY_AGG(gm.user_id::text ORDER BY gm.created_at) FILTER (WHERE gm.user_id IS NOT NULL),'{}')
+		       COALESCE(JSON_AGG(gm.user_id::text ORDER BY gm.created_at) FILTER (WHERE gm.user_id IS NOT NULL),'[]'::json)
 		FROM groups g LEFT JOIN group_members gm ON gm.group_id=g.id AND gm.tenant_id=g.tenant_id
 		WHERE g.tenant_id=$1 GROUP BY g.id ORDER BY g.name`, actor.TenantID)
 	if err != nil {
@@ -36,11 +37,20 @@ func (api *API) adminGroups(writer http.ResponseWriter, request *http.Request, a
 	items := make([]adminGroupResponse, 0)
 	for rows.Next() {
 		var item adminGroupResponse
-		if err = rows.Scan(&item.ID, &item.Name, &item.Description, &item.MemberCount, &item.MemberIDs); err != nil {
+		var memberIDsJSON []byte
+		if err = rows.Scan(&item.ID, &item.Name, &item.Description, &item.MemberCount, &memberIDsJSON); err != nil {
+			errorJSON(writer, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load groups")
+			return
+		}
+		if err = json.Unmarshal(memberIDsJSON, &item.MemberIDs); err != nil {
 			errorJSON(writer, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load groups")
 			return
 		}
 		items = append(items, item)
+	}
+	if err = rows.Err(); err != nil {
+		errorJSON(writer, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load groups")
+		return
 	}
 	respondJSON(writer, http.StatusOK, map[string]any{"groups": items})
 }
@@ -62,7 +72,7 @@ func (api *API) createAdminGroup(writer http.ResponseWriter, request *http.Reque
 }
 
 func (api *API) updateAdminGroup(writer http.ResponseWriter, request *http.Request, actor currentUser) {
-	if !actor.Role.isWorkspaceAdmin() {
+	if !api.hasPermission(request.Context(), actor, "groups.manage") {
 		errorJSON(writer, http.StatusForbidden, "ADMIN_REQUIRED", "workspace administrator access is required")
 		return
 	}
@@ -101,7 +111,7 @@ func (api *API) updateAdminGroup(writer http.ResponseWriter, request *http.Reque
 }
 
 func (api *API) updateAdminGroupMember(writer http.ResponseWriter, request *http.Request, actor currentUser) {
-	if !actor.Role.isWorkspaceAdmin() {
+	if !api.hasPermission(request.Context(), actor, "groups.manage") {
 		errorJSON(writer, http.StatusForbidden, "ADMIN_REQUIRED", "workspace administrator access is required")
 		return
 	}

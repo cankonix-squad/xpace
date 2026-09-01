@@ -23,7 +23,7 @@ func (api *API) loadMeetingPolicy(ctx context.Context, tenantID string) (meeting
 }
 
 func (api *API) adminMeetingPolicy(writer http.ResponseWriter, request *http.Request, actor currentUser) {
-	if !actor.Role.isWorkspaceAdmin() {
+	if !api.hasPermission(request.Context(), actor, "policy.manage") {
 		errorJSON(writer, http.StatusForbidden, "ADMIN_REQUIRED", "workspace administrator access is required")
 		return
 	}

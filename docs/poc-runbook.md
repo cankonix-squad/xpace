@@ -36,9 +36,9 @@ docker compose run --rm --entrypoint /usr/local/bin/recording-smoke api
 For TLS deployment, point the same smoke test at public endpoints:
 
 ```bash
-XPACE_WEB_URL=https://xpace.cankonix.com \
-XPACE_API_URL=https://xpace.cankonix.com \
-XPACE_LIVEKIT_URL=https://livekit.xpace.cankonix.com \
+XPACE_WEB_URL=https://xspace.cankonix.com \
+XPACE_API_URL=https://xspace.cankonix.com \
+XPACE_LIVEKIT_URL=https://livekit.xspace.cankonix.com \
 XPACE_RECORDING_URL=skip \
 scripts/poc-smoke.sh
 ```
@@ -74,7 +74,7 @@ curl -fsS http://127.0.0.1:8080/api/v1/health
 
 ## TLS deployment
 
-Set DNS for `xpace.cankonix.com` and `livekit.xpace.cankonix.com`, configure
+Set DNS for `xspace.cankonix.com` and `livekit.xspace.cankonix.com`, configure
 `ACME_EMAIL`, allow the documented media ports, then run:
 
 ```bash

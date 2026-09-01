@@ -1,0 +1,115 @@
+services:
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        umask 077;
+        printf '%s' "$$SMTP_PASSWORD" > /tmp/xspace-smtp-password;
+        printf '%s' "$$ALERTMANAGER_WEBHOOK_SECRET" > /tmp/xspace-alert-token;
+        exec /bin/alertmanager
+        --config.file=/etc/alertmanager/alertmanager.yml
+        --storage.path=/alertmanager
+        --web.external-url=http://127.0.0.1:9093
+    environment:
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?Set SMTP_PASSWORD in .env}
+      ALERTMANAGER_WEBHOOK_SECRET: ${ALERTMANAGER_WEBHOOK_SECRET:-${API_SESSION_SIGNING_KEY:?Set ALERTMANAGER_WEBHOOK_SECRET or API_SESSION_SIGNING_KEY}}
+    ports:
+      - "127.0.0.1:9093:9093"
+    configs:
+      - source: alertmanager-config
+        target: /etc/alertmanager/alertmanager.yml
+    volumes:
+      - alertmanager-data:/alertmanager
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9093/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-10GB}
+      - --web.enable-lifecycle
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      api:
+        condition: service_healthy
+      alertmanager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.4.3
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-${API_SESSION_SIGNING_KEY:?Set GRAFANA_ADMIN_PASSWORD or API_SESSION_SIGNING_KEY}}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SERVER_HTTP_PORT: "3000"
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/observability/grafana/provisioning/datasources/prometheus.yml:/etc/grafana/provisioning/datasources/xspace-prometheus.yml:ro
+      - ./infra/observability/grafana/provisioning/dashboards/xspace.yml:/etc/grafana/provisioning/dashboards/xspace.yml:ro
+      - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  alertmanager-data:
+  prometheus-data:
+  grafana-data:
+
+configs:
+  alertmanager-config:
+    content: |
+      global:
+        smtp_smarthost: ${SMTP_HOST:?Set SMTP_HOST in .env}:${SMTP_PORT:-587}
+        smtp_from: ${SMTP_FROM:?Set SMTP_FROM in .env}
+        smtp_auth_username: ${SMTP_USERNAME:?Set SMTP_USERNAME in .env}
+        smtp_auth_password_file: /tmp/xspace-smtp-password
+        smtp_require_tls: true
+      route:
+        receiver: xspace-operations-email
+        group_by: [alertname, severity, subsystem]
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 4h
+      receivers:
+        - name: xspace-operations-email
+          email_configs:
+            - to: ${XPACE_ALERT_EMAIL:-info@cankonix.com}
+              send_resolved: true
+              headers:
+                Subject: '[Xspace {{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+          webhook_configs:
+            - url: http://api:8080/api/v1/integrations/alertmanager
+              send_resolved: true
+              http_config:
+                authorization:
+                  type: Bearer
+                  credentials_file: /tmp/xspace-alert-token

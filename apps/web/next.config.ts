@@ -8,7 +8,7 @@ const contentSecurityPolicy = [
   "img-src 'self' blob: data:",
   "font-src 'self' data:",
   "connect-src 'self' ws: wss:",
-  "media-src 'self' blob:",
+  "media-src 'self' blob: https://livekit.xspace.cankonix.com",
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
@@ -19,6 +19,7 @@ const contentSecurityPolicy = [
 const nextConfig: NextConfig = {
   devIndicators: false,
   output: "standalone",
+  poweredByHeader: false,
   async headers() {
     const headers = [
       {key:"Content-Security-Policy",value:contentSecurityPolicy},

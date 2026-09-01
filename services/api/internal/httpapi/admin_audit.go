@@ -22,7 +22,7 @@ type auditEventResponse struct {
 }
 
 func (api *API) adminAuditLog(writer http.ResponseWriter, request *http.Request, actor currentUser) {
-	if !actor.Role.isWorkspaceAdmin() {
+	if !api.hasPermission(request.Context(), actor, "audit.read") {
 		errorJSON(writer, http.StatusForbidden, "ADMIN_REQUIRED", "workspace administrator access is required")
 		return
 	}

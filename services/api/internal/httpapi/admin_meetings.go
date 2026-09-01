@@ -23,7 +23,7 @@ type adminMeetingListItem struct {
 }
 
 func (api *API) adminMeetings(writer http.ResponseWriter, request *http.Request, actor currentUser) {
-	if !actor.Role.isWorkspaceAdmin() {
+	if !api.hasPermission(request.Context(), actor, "analytics.read") {
 		errorJSON(writer, http.StatusForbidden, "ADMIN_REQUIRED", "workspace administrator access is required")
 		return
 	}
@@ -63,7 +63,7 @@ func (api *API) adminMeetings(writer http.ResponseWriter, request *http.Request,
 }
 
 func (api *API) adminMeetingAnalytics(writer http.ResponseWriter, request *http.Request, actor currentUser) {
-	if !actor.Role.isWorkspaceAdmin() {
+	if !api.hasPermission(request.Context(), actor, "analytics.read") {
 		errorJSON(writer, http.StatusForbidden, "ADMIN_REQUIRED", "workspace administrator access is required")
 		return
 	}

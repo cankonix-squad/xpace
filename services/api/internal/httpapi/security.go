@@ -65,7 +65,7 @@ func (limiter *rateLimiter) allow(key string, limit int, duration time.Duration)
 }
 
 func requestLimit(request *http.Request) (int, time.Duration) {
-	if request.URL.Path == "/api/v1/auth/login" {
+	if request.URL.Path == "/api/v1/auth/login" || request.URL.Path == "/api/v1/auth/signup" || request.URL.Path == "/api/v1/auth/forgot-password" || request.URL.Path == "/api/v1/auth/reset-password" {
 		return 10, time.Minute
 	}
 	if request.URL.Path == "/api/v1/auth/bootstrap" {

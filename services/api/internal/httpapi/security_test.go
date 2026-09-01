@@ -95,3 +95,30 @@ func TestRequestRateLimitClasses(t *testing.T) {
 		}
 	}
 }
+
+func TestClientIPTrustsOnlyInternalProxyHeaders(t *testing.T) {
+	tests := []struct {
+		name       string
+		remoteAddr string
+		forwarded  string
+		realIP     string
+		want       string
+	}{
+		{name: "direct client ignores spoofed header", remoteAddr: "198.51.100.10:4321", forwarded: "203.0.113.20", want: "198.51.100.10"},
+		{name: "trusted proxy uses rightmost public address", remoteAddr: "172.20.0.4:4321", forwarded: "203.0.113.20, 198.51.100.10", want: "198.51.100.10"},
+		{name: "trusted proxy skips private forwarded address", remoteAddr: "172.20.0.4:4321", forwarded: "203.0.113.20, 10.0.0.2", want: "203.0.113.20"},
+		{name: "trusted proxy falls back to remote", remoteAddr: "172.20.0.4:4321", forwarded: "10.0.0.2", want: "172.20.0.4"},
+		{name: "trusted proxy accepts public real IP", remoteAddr: "127.0.0.1:4321", realIP: "2001:db8::10", want: "2001:db8::10"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/", nil)
+			request.RemoteAddr = test.remoteAddr
+			request.Header.Set("X-Forwarded-For", test.forwarded)
+			request.Header.Set("X-Real-IP", test.realIP)
+			if got := clientIP(request); got != test.want {
+				t.Fatalf("clientIP() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}

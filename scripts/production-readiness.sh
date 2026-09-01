@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-web_domain=${XPACE_DOMAIN:-xpace.cankonix.com}
-livekit_domain=${LIVEKIT_DOMAIN:-livekit.xpace.cankonix.com}
+web_domain=${XPACE_DOMAIN:-xspace.cankonix.com}
+livekit_domain=${LIVEKIT_DOMAIN:-livekit.xspace.cankonix.com}
 failed=0
 
 check_dns() {

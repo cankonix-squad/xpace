@@ -22,6 +22,7 @@ expect_status() {
 
 expect_status 200 "$web_url/" "web dashboard"
 expect_status 200 "$web_url/login" "login page"
+expect_status 200 "$web_url/accept-invite?token=smoke-check" "invitation acceptance page"
 expect_status 200 "$web_url/meet/KX0-YWQ-1R3/prejoin" "prejoin route"
 expect_status 200 "$api_url/healthz" "API liveness"
 expect_status 200 "$api_url/api/v1/health" "API readiness"

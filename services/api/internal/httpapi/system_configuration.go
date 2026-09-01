@@ -21,7 +21,7 @@ type systemConfiguration struct {
 }
 
 func (api *API) adminSystemConfiguration(writer http.ResponseWriter, request *http.Request, actor currentUser) {
-	if !actor.Role.isWorkspaceAdmin() {
+	if !api.hasPermission(request.Context(), actor, "tenant.manage") {
 		errorJSON(writer, http.StatusForbidden, "ADMIN_REQUIRED", "workspace administrator access is required")
 		return
 	}

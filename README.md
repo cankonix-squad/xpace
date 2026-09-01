@@ -2,7 +2,7 @@
 
 Official repository: `https://github.com/cankonix-squad/xpace`
 
-Production application domain: `https://xpace.cankonix.com`
+Production application domain: `https://xspace.cankonix.com`
 
 Secure adaptive digital workspace and collaboration platform.
 
@@ -11,6 +11,7 @@ Operational documentation:
 - [Local setup](docs/local-setup.md)
 - [PoC runbook](docs/poc-runbook.md)
 - [PoC demo script](docs/demo-script.md)
+- [Backup and disaster recovery](docs/disaster-recovery.md)
 
 ## Workspace
 
@@ -166,6 +167,21 @@ JSON log with method, normalized route, status, duration, and remote address.
 The API and production web containers include Docker health checks; Traefik
 access logs provide edge-level request visibility.
 
+Production operations add a one-minute independent endpoint monitor with
+consecutive-failure suppression and SMTP recovery/incident alerts. Install or
+refresh its systemd timer from the production project directory, then run the
+read-only baseline load check:
+
+```bash
+scripts/install-production-monitor.sh
+XPACE_LOAD_URL=http://127.0.0.1:8080/healthz scripts/load-test-basic.sh
+```
+
+The default baseline is 200 requests at concurrency 10, with at most 1% failed
+requests and p95 latency no higher than 1000 ms. Operational ownership,
+severity, escalation, recovery, and customer-support handling are documented
+in `docs/incident-response.md`.
+
 ### TLS-ready deployment
 
 The production override adds a non-root Next.js container and Traefik reverse
@@ -253,6 +269,24 @@ Workspace administrators can manage tenant-scoped system defaults at
 `http://localhost:3300/admin/settings` through
 `GET|PUT /api/v1/admin/system-configuration`. Settings include workspace name,
 timezone, locale, support email, meeting duration, and recording retention.
+
+Plan, entitlement, quota usage, invoice history, and scheduled cancellation are
+available at `/admin/billing`. Billing adapters post normalized lifecycle events
+to `POST /api/v1/billing/webhooks/{provider}` with an
+`X-Xpace-Signature: sha256=<hex-hmac>` header computed over the exact request
+body. Set a long random `BILLING_WEBHOOK_SECRET` before enabling a provider; the
+endpoint remains unavailable when the secret is empty. Webhook event IDs are
+idempotent and cannot be reused with a different payload.
+
+The first native provider adapter uses Xendit Payment Sessions API version
+`2026-01-01`. Configure `XENDIT_SECRET_KEY` and `XENDIT_WEBHOOK_TOKEN`, then set
+the Xendit Payment Session and Subscription webhook URL to
+`https://xspace.cankonix.com/api/v1/billing/webhooks/xendit/native`. The
+server-side checkout endpoint is `POST /api/v1/admin/billing/checkout`; checkout
+controls remain disabled when the Xendit secret key is absent.
+Provider-managed cancellation calls Xendit's plan deactivation endpoint before
+scheduling local period-end access; an inactive Xendit plan must be restarted
+through a new checkout rather than resumed locally.
 
 Meeting history is tenant-scoped and only returns meetings the current user
 hosted or joined; workspace admins can review their entire tenant. Each item

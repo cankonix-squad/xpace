@@ -1,0 +1,15 @@
+ALTER TABLE incidents
+  ADD COLUMN IF NOT EXISTS escalation_level INTEGER NOT NULL DEFAULT 0 CHECK (escalation_level BETWEEN 0 AND 3),
+  ADD COLUMN IF NOT EXISTS last_escalated_at TIMESTAMPTZ;
+
+ALTER TABLE incident_events DROP CONSTRAINT IF EXISTS incident_events_event_type_check;
+ALTER TABLE incident_events ADD CONSTRAINT incident_events_event_type_check
+  CHECK (event_type IN ('CREATED','ACKNOWLEDGED','INVESTIGATING','ASSIGNED','SEVERITY_CHANGED','NOTE','RESOLVED','CLOSED','REOPENED','ALERT_FIRING','ALERT_RESOLVED','ESCALATED'));
+
+ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_type_check;
+ALTER TABLE notifications ADD CONSTRAINT notifications_type_check
+  CHECK (type IN ('CHAT_REPLY','CHAT_REACTION','CHAT_MENTION','INCIDENT_ESCALATION'));
+
+ALTER TABLE email_outbox DROP CONSTRAINT IF EXISTS email_outbox_template_check;
+ALTER TABLE email_outbox ADD CONSTRAINT email_outbox_template_check
+  CHECK (template IN ('VERIFY_EMAIL','RESET_PASSWORD','INVITATION','BILLING_NOTICE','SECURITY_NOTICE','INCIDENT_NOTICE'));
