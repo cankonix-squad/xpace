@@ -92,7 +92,15 @@ jobs:
           go-version-file: services/api/go.mod
           cache-dependency-path: services/api/go.sum
       - name: Prepare integration configuration
-        run: cp .env.example .env
+        run: |
+          cp .env.example .env
+          sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=xpace-ci-postgres-secret/' .env
+          sed -i 's/^REDIS_PASSWORD=.*/REDIS_PASSWORD=xpace-ci-redis-secret/' .env
+          sed -i 's/^MINIO_ROOT_PASSWORD=.*/MINIO_ROOT_PASSWORD=xpace-ci-minio-secret-2026/' .env
+          sed -i 's|^DATABASE_URL=.*|DATABASE_URL=postgres://xpace:xpace-ci-postgres-secret@127.0.0.1:5432/xpace?sslmode=disable|' .env
+          sed -i 's/^API_SESSION_SIGNING_KEY=.*/API_SESSION_SIGNING_KEY=xpace-ci-session-signing-key-2026/' .env
+          sed -i 's/^LIVEKIT_API_SECRET=.*/LIVEKIT_API_SECRET=xpace-ci-livekit-secret-key-2026/' .env
+          sed -i 's/^COTURN_AUTH_SECRET=.*/COTURN_AUTH_SECRET=xpace-ci-coturn-secret-key-2026/' .env
       - name: Start API integration stack
         run: docker compose up -d --build api
       - name: Wait for API readiness
