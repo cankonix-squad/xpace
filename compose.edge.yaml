@@ -2,6 +2,14 @@ services:
   web:
     build:
       context: ./apps/web
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /app/.next/cache:size=128m,mode=1777
     environment:
       API_URL: http://api:8080
     expose:

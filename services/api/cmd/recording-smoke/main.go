@@ -78,12 +78,42 @@ func main() {
 	if err != nil {
 		panic(fmt.Errorf("start egress: %w", err))
 	}
+	if err = waitForEgressActive(ctx, egress, info.EgressId); err != nil {
+		panic(err)
+	}
 	time.Sleep(8 * time.Second)
 	if _, err = egress.StopEgress(ctx, &livekit.StopEgressRequest{EgressId: info.EgressId}); err != nil {
 		panic(fmt.Errorf("stop egress: %w", err))
 	}
 	verifyRecordingObject(ctx, objectKey)
 	fmt.Printf("recording smoke completed: create, signed download, and delete passed for %s\n", objectKey)
+}
+
+func waitForEgressActive(ctx context.Context, client *lksdk.EgressClient, egressID string) error {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		response, err := client.ListEgress(ctx, &livekit.ListEgressRequest{EgressId: egressID})
+		if err != nil {
+			return fmt.Errorf("inspect egress startup: %w", err)
+		}
+		if len(response.Items) != 0 {
+			info := response.Items[0]
+			switch info.Status {
+			case livekit.EgressStatus_EGRESS_ACTIVE:
+				return nil
+			case livekit.EgressStatus_EGRESS_FAILED,
+				livekit.EgressStatus_EGRESS_ABORTED,
+				livekit.EgressStatus_EGRESS_LIMIT_REACHED:
+				return fmt.Errorf("egress startup failed: status=%s error=%s", info.Status, info.Error)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for egress active: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 func verifyRecordingObject(ctx context.Context, objectKey string) {
@@ -103,8 +133,7 @@ func verifyRecordingObject(ctx context.Context, objectKey string) {
 		panic(fmt.Errorf("recorded object was not finalized: %w", err))
 	}
 
-	public := objectClient(required("RECORDING_S3_PUBLIC_ENDPOINT"), accessKey, secret)
-	signedURL, err := public.PresignedGetObject(ctx, bucket, objectKey, 5*time.Minute, nil)
+	signedURL, err := internal.PresignedGetObject(ctx, bucket, objectKey, 5*time.Minute, nil)
 	if err != nil {
 		panic(fmt.Errorf("issue signed recording URL: %w", err))
 	}

@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import { CspImage as Image } from "./csp-image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";

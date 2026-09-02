@@ -1,28 +1,428 @@
 "use client";
 
 import Link from "next/link";
-import {FormEvent,useCallback,useEffect,useState} from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import styles from "./incidents.module.css";
 
-type Incident={id:string;title:string;description:string;source:string;severity:string;status:string;assigneeUserId:string|null;assigneeName:string;createdByName:string;acknowledgedAt:string|null;resolvedAt:string|null;createdAt:string;updatedAt:string};
-type TimelineEvent={id:string;eventType:string;actorName:string;note:string;metadata:Record<string,unknown>;createdAt:string};
-type User={id:string;displayName:string;email:string;status:string};
+type Incident = {
+  id: string;
+  title: string;
+  description: string;
+  source: string;
+  severity: string;
+  status: string;
+  assigneeUserId: string | null;
+  assigneeName: string;
+  createdByName: string;
+  acknowledgedAt: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+type TimelineEvent = {
+  id: string;
+  eventType: string;
+  actorName: string;
+  note: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+};
+type User = { id: string; displayName: string; email: string; status: string };
 
-export default function IncidentsPage(){
- const [incidents,setIncidents]=useState<Incident[]>([]),[summary,setSummary]=useState({open:0,acknowledged:0,investigating:0,resolved:0}),[status,setStatus]=useState(""),[severity,setSeverity]=useState(""),[selected,setSelected]=useState<Incident|null>(null),[timeline,setTimeline]=useState<TimelineEvent[]>([]),[users,setUsers]=useState<User[]>([]),[error,setError]=useState("");
- const load=useCallback(async()=>{const q=new URLSearchParams();if(status)q.set("status",status);if(severity)q.set("severity",severity);const response=await fetch(`/api/v1/admin/incidents?${q}`),data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data?.error?.message??"Could not load incidents");setIncidents(data.incidents);setSummary(data.summary)},[status,severity]);
- const detail=useCallback(async(id:string)=>{const response=await fetch(`/api/v1/admin/incidents/${id}`),data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data?.error?.message??"Could not load incident");setSelected(data.incident);setTimeline(data.timeline)},[]);
- useEffect(()=>{let active=true;const timer=window.setTimeout(()=>{void load().catch(reason=>{if(active)setError(message(reason))});void fetch("/api/v1/directory/users").then(r=>r.json()).then(data=>{if(active)setUsers((data.users??[]).filter((u:User)=>u.status==="ACTIVE"))}).catch(()=>undefined)},0);return()=>{active=false;window.clearTimeout(timer)}},[load]);
- async function mutate(url:string,options?:RequestInit){setError("");const response=await fetch(url,{method:"POST",...options,headers:{"Content-Type":"application/json",...(options?.headers??{})}}),data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data?.error?.message??"Incident update failed");await load();if(selected)await detail(selected.id)}
- return <main className={styles.page}><header className={styles.head}><div><p className={styles.eyebrow}>XSPACE ADMIN · OPERATIONS</p><h1>Incident response</h1><span>Acknowledge, investigate, assign, and resolve operational cases with an auditable timeline.</span></div><Link href="/admin">← Admin dashboard</Link></header>
- {error&&<p className={styles.error}>{error}</p>}<section className={styles.summary}>{Object.entries(summary).map(([label,value])=><article key={label}><span>{label.replace(/^./,letter=>letter.toUpperCase())}</span><strong>{value}</strong></article>)}</section>
- <div className={styles.workspace}><section className={styles.panel}><div className={styles.toolbar}><select aria-label="Status filter" value={status} onChange={e=>setStatus(e.target.value)}><option value="">All status</option>{["OPEN","ACKNOWLEDGED","INVESTIGATING","RESOLVED","CLOSED"].map(v=><option key={v}>{v}</option>)}</select><select aria-label="Severity filter" value={severity} onChange={e=>setSeverity(e.target.value)}><option value="">All severity</option>{["P1","P2","P3","P4"].map(v=><option key={v}>{v}</option>)}</select></div><CreateForm onCreated={async id=>{await load();await detail(id)}}/>
- <div className={styles.list}>{incidents.map(item=><button key={item.id} className={`${styles.incident} ${selected?.id===item.id?styles.selected:""}`} onClick={()=>void detail(item.id).catch(reason=>setError(message(reason)))}><span className={`${styles.severity} ${styles[item.severity.toLowerCase()]??""}`}>{item.severity}</span><span><h3>{item.title}</h3><p>{item.assigneeName||"Unassigned"} · {item.source}</p><i className={styles.status}>{item.status}</i></span><time>{formatDate(item.updatedAt)}</time></button>)}{!incidents.length&&<p className={styles.empty}>No incidents match these filters.</p>}</div></section>
- {selected?<aside className={styles.detail}><div className={styles.detailHead}><div><p className={styles.eyebrow}>{selected.severity} · {selected.status}</p><h2>{selected.title}</h2></div><button aria-label="Close incident detail" onClick={()=>setSelected(null)}>×</button></div><p className={styles.muted}>{selected.description||"No description provided."}</p><div className={styles.meta}><div><small>Source</small>{selected.source}</div><div><small>Owner</small>{selected.assigneeName||"Unassigned"}</div><div><small>Created by</small>{selected.createdByName}</div><div><small>Updated</small>{formatDate(selected.updatedAt)}</div></div><div className={styles.row}><select aria-label="Incident severity" value={selected.severity} onChange={e=>void fetch(`/api/v1/admin/incidents/${selected.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({severity:e.target.value})}).then(()=>detail(selected.id)).then(load).catch(reason=>setError(message(reason)))}>{["P1","P2","P3","P4"].map(v=><option key={v}>{v}</option>)}</select><select aria-label="Incident assignee" value={selected.assigneeUserId??""} onChange={e=>void fetch(`/api/v1/admin/incidents/${selected.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({assigneeUserId:e.target.value})}).then(()=>detail(selected.id)).then(load).catch(reason=>setError(message(reason)))}><option value="">Unassigned</option>{users.map(user=><option value={user.id} key={user.id}>{user.displayName}</option>)}</select></div><div className={styles.actions}>{actionsFor(selected.status).map(action=><button className={action==="resolve"||action==="close"?styles.danger:styles.secondary} key={action} onClick={()=>void mutate(`/api/v1/admin/incidents/${selected.id}/${action}`).catch(reason=>setError(message(reason)))}>{action.replace(/^./,letter=>letter.toUpperCase())}</button>)}</div><NoteForm onSubmit={note=>mutate(`/api/v1/admin/incidents/${selected.id}/timeline`,{body:JSON.stringify({note})})}/><div className={styles.timeline}>{timeline.map(event=><article className={styles.event} key={event.id}><header><strong>{event.eventType.replaceAll("_"," ")}</strong><time>{formatDate(event.createdAt)}</time></header><span>{event.actorName}</span>{event.note&&<p>{event.note}</p>}</article>)}</div></aside>:<aside className={styles.detail}><p className={styles.empty}>Select an incident to inspect its timeline.</p></aside>}</div></main>
+export default function IncidentsPage() {
+  const [incidents, setIncidents] = useState<Incident[]>([]),
+    [summary, setSummary] = useState({
+      open: 0,
+      acknowledged: 0,
+      investigating: 0,
+      resolved: 0,
+    }),
+    [status, setStatus] = useState(""),
+    [severity, setSeverity] = useState(""),
+    [selected, setSelected] = useState<Incident | null>(null),
+    [timeline, setTimeline] = useState<TimelineEvent[]>([]),
+    [users, setUsers] = useState<User[]>([]),
+    [error, setError] = useState("");
+  const load = useCallback(async () => {
+    const q = new URLSearchParams();
+    if (status) q.set("status", status);
+    if (severity) q.set("severity", severity);
+    const response = await fetch(`/api/v1/admin/incidents?${q}`),
+      data = await response.json().catch(() => ({}));
+    if (!response.ok)
+      throw new Error(data?.error?.message ?? "Could not load incidents");
+    setIncidents(data.incidents);
+    setSummary(data.summary);
+  }, [status, severity]);
+  const detail = useCallback(async (id: string) => {
+    const response = await fetch(`/api/v1/admin/incidents/${id}`),
+      data = await response.json().catch(() => ({}));
+    if (!response.ok)
+      throw new Error(data?.error?.message ?? "Could not load incident");
+    setSelected(data.incident);
+    setTimeline(data.timeline);
+  }, []);
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void load().catch((reason) => {
+        if (active) setError(message(reason));
+      });
+      void fetch("/api/v1/directory/users")
+        .then((r) => r.json())
+        .then((data) => {
+          if (active)
+            setUsers(
+              (data.users ?? []).filter((u: User) => u.status === "ACTIVE"),
+            );
+        })
+        .catch(() => undefined);
+    }, 0);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [load]);
+  async function mutate(url: string, options?: RequestInit) {
+    setError("");
+    const response = await fetch(url, {
+        method: "POST",
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(options?.headers ?? {}),
+        },
+      }),
+      data = await response.json().catch(() => ({}));
+    if (!response.ok)
+      throw new Error(data?.error?.message ?? "Incident update failed");
+    await load();
+    if (selected) await detail(selected.id);
+  }
+  return (
+    <main className={styles.page}>
+      <header className={styles.head}>
+        <div>
+          <p className={styles.eyebrow}>XSPACE ADMIN · OPERATIONS</p>
+          <h1>Incident response</h1>
+          <span>
+            Acknowledge, investigate, assign, and resolve operational cases with
+            an auditable timeline.
+          </span>
+        </div>
+        <Link href="/admin">← Admin dashboard</Link>
+      </header>
+      {error && <p className={styles.error}>{error}</p>}
+      <section className={styles.summary}>
+        {Object.entries(summary).map(([label, value]) => (
+          <article key={label}>
+            <span>{label.replace(/^./, (letter) => letter.toUpperCase())}</span>
+            <strong>{value}</strong>
+          </article>
+        ))}
+      </section>
+      <div className={styles.workspace}>
+        <section className={styles.panel}>
+          <div className={styles.toolbar}>
+            <select
+              aria-label="Status filter"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+            >
+              <option value="">All status</option>
+              {[
+                "OPEN",
+                "ACKNOWLEDGED",
+                "INVESTIGATING",
+                "RESOLVED",
+                "CLOSED",
+              ].map((v) => (
+                <option key={v}>{v}</option>
+              ))}
+            </select>
+            <select
+              aria-label="Severity filter"
+              value={severity}
+              onChange={(e) => setSeverity(e.target.value)}
+            >
+              <option value="">All severity</option>
+              {["P1", "P2", "P3", "P4"].map((v) => (
+                <option key={v}>{v}</option>
+              ))}
+            </select>
+          </div>
+          <CreateForm
+            onCreated={async (id) => {
+              await load();
+              await detail(id);
+            }}
+          />
+          <div className={styles.list}>
+            {incidents.map((item) => (
+              <button
+                key={item.id}
+                className={`${styles.incident} ${selected?.id === item.id ? styles.selected : ""}`}
+                onClick={() =>
+                  void detail(item.id).catch((reason) =>
+                    setError(message(reason)),
+                  )
+                }
+              >
+                <span
+                  className={`${styles.severity} ${styles[item.severity.toLowerCase()] ?? ""}`}
+                >
+                  {item.severity}
+                </span>
+                <span>
+                  <h3>{item.title}</h3>
+                  <p>
+                    {item.assigneeName || "Unassigned"} · {item.source}
+                  </p>
+                  <i className={styles.status}>{item.status}</i>
+                </span>
+                <time>{formatDate(item.updatedAt)}</time>
+              </button>
+            ))}
+            {!incidents.length && (
+              <p className={styles.empty}>No incidents match these filters.</p>
+            )}
+          </div>
+        </section>
+        {selected ? (
+          <aside className={styles.detail}>
+            <div className={styles.detailHead}>
+              <div>
+                <p className={styles.eyebrow}>
+                  {selected.severity} · {selected.status}
+                </p>
+                <h2>{selected.title}</h2>
+              </div>
+              <button
+                aria-label="Close incident detail"
+                onClick={() => setSelected(null)}
+              >
+                ×
+              </button>
+            </div>
+            <p className={styles.muted}>
+              {selected.description || "No description provided."}
+            </p>
+            <div className={styles.meta}>
+              <div>
+                <small>Source</small>
+                {selected.source}
+              </div>
+              <div>
+                <small>Owner</small>
+                {selected.assigneeName || "Unassigned"}
+              </div>
+              <div>
+                <small>Created by</small>
+                {selected.createdByName}
+              </div>
+              <div>
+                <small>Updated</small>
+                {formatDate(selected.updatedAt)}
+              </div>
+            </div>
+            <div className={styles.row}>
+              <select
+                aria-label="Incident severity"
+                value={selected.severity}
+                onChange={(e) =>
+                  void fetch(`/api/v1/admin/incidents/${selected.id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ severity: e.target.value }),
+                  })
+                    .then(() => detail(selected.id))
+                    .then(load)
+                    .catch((reason) => setError(message(reason)))
+                }
+              >
+                {["P1", "P2", "P3", "P4"].map((v) => (
+                  <option key={v}>{v}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Incident assignee"
+                value={selected.assigneeUserId ?? ""}
+                onChange={(e) =>
+                  void fetch(`/api/v1/admin/incidents/${selected.id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ assigneeUserId: e.target.value }),
+                  })
+                    .then(() => detail(selected.id))
+                    .then(load)
+                    .catch((reason) => setError(message(reason)))
+                }
+              >
+                <option value="">Unassigned</option>
+                {users.map((user) => (
+                  <option value={user.id} key={user.id}>
+                    {user.displayName}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className={styles.actions}>
+              {actionsFor(selected.status).map((action) => (
+                <button
+                  className={
+                    action === "resolve" || action === "close"
+                      ? styles.danger
+                      : styles.secondary
+                  }
+                  key={action}
+                  onClick={() =>
+                    void mutate(
+                      `/api/v1/admin/incidents/${selected.id}/${action}`,
+                    ).catch((reason) => setError(message(reason)))
+                  }
+                >
+                  {action.replace(/^./, (letter) => letter.toUpperCase())}
+                </button>
+              ))}
+            </div>
+            <NoteForm
+              onSubmit={(note) =>
+                mutate(`/api/v1/admin/incidents/${selected.id}/timeline`, {
+                  body: JSON.stringify({ note }),
+                })
+              }
+            />
+            <div className={styles.timeline}>
+              {timeline.map((event) => (
+                <article className={styles.event} key={event.id}>
+                  <header>
+                    <strong>{event.eventType.replaceAll("_", " ")}</strong>
+                    <time>{formatDate(event.createdAt)}</time>
+                  </header>
+                  <span>{event.actorName}</span>
+                  {event.note && <p>{event.note}</p>}
+                </article>
+              ))}
+            </div>
+          </aside>
+        ) : (
+          <aside className={styles.detail}>
+            <p className={styles.empty}>
+              Select an incident to inspect its timeline.
+            </p>
+          </aside>
+        )}
+      </div>
+    </main>
+  );
 }
 
-function CreateForm({onCreated}:{onCreated:(id:string)=>Promise<void>}){const [open,setOpen]=useState(false),[title,setTitle]=useState(""),[description,setDescription]=useState(""),[severity,setSeverity]=useState("P3");async function submit(event:FormEvent){event.preventDefault();const response=await fetch("/api/v1/admin/incidents",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title,description,severity,source:"MANUAL"})}),data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data?.error?.message??"Could not create incident");setTitle("");setDescription("");setOpen(false);await onCreated(data.id)}return open?<form className={styles.form} onSubmit={event=>void submit(event)}><h2>New incident</h2><input required minLength={3} maxLength={160} placeholder="Incident title" value={title} onChange={e=>setTitle(e.target.value)}/><textarea maxLength={4000} placeholder="What happened and what is affected?" value={description} onChange={e=>setDescription(e.target.value)}/><div className={styles.row}><select value={severity} onChange={e=>setSeverity(e.target.value)}>{["P1","P2","P3","P4"].map(v=><option key={v}>{v}</option>)}</select><button className={styles.primary}>Create case</button></div><button type="button" className={styles.secondary} onClick={()=>setOpen(false)}>Cancel</button></form>:<button className={styles.primary} style={{marginBottom:16}} onClick={()=>setOpen(true)}>+ Create incident</button>}
-function NoteForm({onSubmit}:{onSubmit:(note:string)=>Promise<void>}){const [note,setNote]=useState("");return <form className={styles.form} onSubmit={event=>{event.preventDefault();void onSubmit(note).then(()=>setNote(""))}}><textarea required maxLength={4000} value={note} onChange={e=>setNote(e.target.value)} placeholder="Add investigation note…"/><button className={styles.primary}>Add timeline note</button></form>}
-function actionsFor(status:string){if(status==="OPEN")return["acknowledge","investigate","resolve"];if(status==="ACKNOWLEDGED")return["investigate","resolve"];if(status==="INVESTIGATING")return["resolve"];if(status==="RESOLVED")return["close","reopen"];if(status==="CLOSED")return["reopen"];return[]}
-function formatDate(value:string){return new Intl.DateTimeFormat("en",{dateStyle:"medium",timeStyle:"short"}).format(new Date(value))}
-function message(reason:unknown){return reason instanceof Error?reason.message:"Incident operation failed"}
+function CreateForm({
+  onCreated,
+}: {
+  onCreated: (id: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false),
+    [title, setTitle] = useState(""),
+    [description, setDescription] = useState(""),
+    [severity, setSeverity] = useState("P3");
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const response = await fetch("/api/v1/admin/incidents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          description,
+          severity,
+          source: "MANUAL",
+        }),
+      }),
+      data = await response.json().catch(() => ({}));
+    if (!response.ok)
+      throw new Error(data?.error?.message ?? "Could not create incident");
+    setTitle("");
+    setDescription("");
+    setOpen(false);
+    await onCreated(data.id);
+  }
+  return open ? (
+    <form className={styles.form} onSubmit={(event) => void submit(event)}>
+      <h2>New incident</h2>
+      <input
+        required
+        minLength={3}
+        maxLength={160}
+        placeholder="Incident title"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+      />
+      <textarea
+        maxLength={4000}
+        placeholder="What happened and what is affected?"
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+      />
+      <div className={styles.row}>
+        <select value={severity} onChange={(e) => setSeverity(e.target.value)}>
+          {["P1", "P2", "P3", "P4"].map((v) => (
+            <option key={v}>{v}</option>
+          ))}
+        </select>
+        <button className={styles.primary}>Create case</button>
+      </div>
+      <button
+        type="button"
+        className={styles.secondary}
+        onClick={() => setOpen(false)}
+      >
+        Cancel
+      </button>
+    </form>
+  ) : (
+    <button
+      className={`${styles.primary} csp-margin-bottom-16`}
+      onClick={() => setOpen(true)}
+    >
+      + Create incident
+    </button>
+  );
+}
+function NoteForm({ onSubmit }: { onSubmit: (note: string) => Promise<void> }) {
+  const [note, setNote] = useState("");
+  return (
+    <form
+      className={styles.form}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void onSubmit(note).then(() => setNote(""));
+      }}
+    >
+      <textarea
+        required
+        maxLength={4000}
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Add investigation note…"
+      />
+      <button className={styles.primary}>Add timeline note</button>
+    </form>
+  );
+}
+function actionsFor(status: string) {
+  if (status === "OPEN") return ["acknowledge", "investigate", "resolve"];
+  if (status === "ACKNOWLEDGED") return ["investigate", "resolve"];
+  if (status === "INVESTIGATING") return ["resolve"];
+  if (status === "RESOLVED") return ["close", "reopen"];
+  if (status === "CLOSED") return ["reopen"];
+  return [];
+}
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+function message(reason: unknown) {
+  return reason instanceof Error ? reason.message : "Incident operation failed";
+}

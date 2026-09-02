@@ -4,15 +4,391 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import styles from "../users/users.module.css";
 
-type Configuration = {workspaceName:string;defaultTimezone:string;defaultLocale:string;supportEmail:string;maxMeetingDurationMinutes:number;recordingRetentionDays:number};
-type OIDC = {issuerUrl:string;authorizationEndpoint:string;tokenEndpoint:string;userinfoEndpoint:string;clientId:string;clientSecret:string;clientSecretConfigured:boolean;enabled:boolean;autoProvision:boolean;defaultRole:string};
-const defaults:Configuration={workspaceName:"",defaultTimezone:"Asia/Jakarta",defaultLocale:"id-ID",supportEmail:"",maxMeetingDurationMinutes:120,recordingRetentionDays:30};
-const oidcDefaults:OIDC={issuerUrl:"",authorizationEndpoint:"",tokenEndpoint:"",userinfoEndpoint:"",clientId:"",clientSecret:"",clientSecretConfigured:false,enabled:false,autoProvision:false,defaultRole:"MEMBER"};
+type Configuration = {
+  workspaceName: string;
+  defaultTimezone: string;
+  defaultLocale: string;
+  supportEmail: string;
+  maxMeetingDurationMinutes: number;
+  recordingRetentionDays: number;
+};
+type OIDC = {
+  issuerUrl: string;
+  authorizationEndpoint: string;
+  tokenEndpoint: string;
+  userinfoEndpoint: string;
+  clientId: string;
+  clientSecret: string;
+  clientSecretConfigured: boolean;
+  enabled: boolean;
+  autoProvision: boolean;
+  defaultRole: string;
+};
+const defaults: Configuration = {
+  workspaceName: "",
+  defaultTimezone: "Asia/Jakarta",
+  defaultLocale: "id-ID",
+  supportEmail: "",
+  maxMeetingDurationMinutes: 120,
+  recordingRetentionDays: 30,
+};
+const oidcDefaults: OIDC = {
+  issuerUrl: "",
+  authorizationEndpoint: "",
+  tokenEndpoint: "",
+  userinfoEndpoint: "",
+  clientId: "",
+  clientSecret: "",
+  clientSecretConfigured: false,
+  enabled: false,
+  autoProvision: false,
+  defaultRole: "MEMBER",
+};
 
-export default function SystemSettings(){
-  const[configuration,setConfiguration]=useState<Configuration>(defaults),[oidc,setOIDC]=useState<OIDC>(oidcDefaults),[loading,setLoading]=useState(true),[saving,setSaving]=useState(false),[message,setMessage]=useState("");
-  useEffect(()=>{let active=true;void Promise.all([fetch("/api/v1/admin/system-configuration"),fetch("/api/v1/admin/identity/oidc")]).then(async([system,identity])=>{const[a,b]=await Promise.all([system.json().catch(()=>({})),identity.json().catch(()=>({}))]);if(!active)return;if(system.ok)setConfiguration(a.configuration);else setMessage(a?.error?.message??"Could not load system configuration");if(identity.ok)setOIDC({...oidcDefaults,...b.configuration,clientSecret:""});else setMessage(b?.error?.message??"Could not load identity configuration")}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[]);
-  async function save(event:FormEvent<HTMLFormElement>){event.preventDefault();setSaving(true);const response=await fetch("/api/v1/admin/system-configuration",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(configuration)}),data=await response.json().catch(()=>({}));setSaving(false);if(response.ok)setConfiguration(data.configuration);setMessage(response.ok?"System configuration saved":data?.error?.message??"Could not save system configuration")}
-  async function saveOIDC(event:FormEvent<HTMLFormElement>){event.preventDefault();setSaving(true);const response=await fetch("/api/v1/admin/identity/oidc",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(oidc)}),data=await response.json().catch(()=>({}));setSaving(false);if(response.ok)setOIDC({...data.configuration,clientSecret:""});setMessage(response.ok?"OIDC configuration saved":data?.error?.message??"Could not save OIDC configuration")}
-  return <main className={styles.page}><header><div><p>XSPACE ADMIN · SETTINGS</p><h1>System configuration</h1><span>Workspace identity, regional defaults, operational limits, and enterprise sign-in.</span></div><nav><Link href="/admin">Dashboard</Link><Link href="/admin/policies">Meeting policy</Link><Link href="/admin/audit">Audit log</Link></nav></header>{message&&<div className={styles.notice}>{message}<button type="button" onClick={()=>setMessage("")} aria-label="Dismiss message">×</button></div>}{loading?<p>Loading configuration…</p>:<><section className={styles.users} style={{maxWidth:780}}><div className={styles.usersHead}><div><h2>Workspace defaults</h2><p>These values are isolated to this tenant and visible only to workspace administrators.</p></div></div><form className={styles.invite} style={{border:0,padding:0}} onSubmit={save}><label>Workspace name<input required minLength={2} maxLength={120} value={configuration.workspaceName} onChange={event=>setConfiguration({...configuration,workspaceName:event.target.value})}/></label><label>Default timezone<input required value={configuration.defaultTimezone} onChange={event=>setConfiguration({...configuration,defaultTimezone:event.target.value})} placeholder="Asia/Jakarta"/></label><label>Default locale<input required value={configuration.defaultLocale} onChange={event=>setConfiguration({...configuration,defaultLocale:event.target.value})} placeholder="id-ID"/></label><label>Support email<input type="email" value={configuration.supportEmail} onChange={event=>setConfiguration({...configuration,supportEmail:event.target.value})} placeholder="support@company.com"/></label><label>Maximum meeting duration (minutes)<input type="number" min={15} max={1440} value={configuration.maxMeetingDurationMinutes} onChange={event=>setConfiguration({...configuration,maxMeetingDurationMinutes:Number(event.target.value)})}/></label><label>Recording retention (days)<input type="number" min={1} max={3650} value={configuration.recordingRetentionDays} onChange={event=>setConfiguration({...configuration,recordingRetentionDays:Number(event.target.value)})}/></label><button disabled={saving}>{saving?"Saving…":"Save configuration"}</button></form></section><section className={styles.users} style={{maxWidth:780,marginTop:20}}><div className={styles.usersHead}><div><h2>OpenID Connect SSO</h2><p>Connect Okta, Microsoft Entra ID, Keycloak, Auth0, or another standards-compatible provider.</p></div></div><form className={styles.invite} style={{border:0,padding:0}} onSubmit={saveOIDC}><label>Issuer URL<input type="url" required value={oidc.issuerUrl} onChange={event=>setOIDC({...oidc,issuerUrl:event.target.value})} placeholder="https://identity.company.com"/></label><label>Authorization endpoint<input type="url" required value={oidc.authorizationEndpoint} onChange={event=>setOIDC({...oidc,authorizationEndpoint:event.target.value})} placeholder="https://identity.company.com/oauth2/authorize"/></label><label>Token endpoint<input type="url" required value={oidc.tokenEndpoint} onChange={event=>setOIDC({...oidc,tokenEndpoint:event.target.value})} placeholder="https://identity.company.com/oauth2/token"/></label><label>UserInfo endpoint<input type="url" required value={oidc.userinfoEndpoint} onChange={event=>setOIDC({...oidc,userinfoEndpoint:event.target.value})} placeholder="https://identity.company.com/oauth2/userinfo"/></label><label>Client ID<input required value={oidc.clientId} onChange={event=>setOIDC({...oidc,clientId:event.target.value})}/></label><label>Client secret<input type="password" required={!oidc.clientSecretConfigured} value={oidc.clientSecret} onChange={event=>setOIDC({...oidc,clientSecret:event.target.value})} placeholder={oidc.clientSecretConfigured?"Stored securely — leave blank to keep":"Enter provider client secret"}/></label><label>Default provisioned role<select value={oidc.defaultRole} onChange={event=>setOIDC({...oidc,defaultRole:event.target.value})}><option value="MEMBER">Member</option><option value="GUEST">Guest</option></select></label><label><input type="checkbox" checked={oidc.autoProvision} onChange={event=>setOIDC({...oidc,autoProvision:event.target.checked})}/> Automatically provision verified users</label><label><input type="checkbox" checked={oidc.enabled} onChange={event=>setOIDC({...oidc,enabled:event.target.checked})}/> Enable OIDC sign-in for this workspace</label><small>Callback URL: https://xspace.cankonix.com/api/v1/auth/sso/oidc/callback</small><button disabled={saving}>{saving?"Saving…":"Save OIDC configuration"}</button></form></section></>}</main>
+export default function SystemSettings() {
+  const [configuration, setConfiguration] = useState<Configuration>(defaults),
+    [oidc, setOIDC] = useState<OIDC>(oidcDefaults),
+    [loading, setLoading] = useState(true),
+    [saving, setSaving] = useState(false),
+    [message, setMessage] = useState("");
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      fetch("/api/v1/admin/system-configuration"),
+      fetch("/api/v1/admin/identity/oidc"),
+    ])
+      .then(async ([system, identity]) => {
+        const [a, b] = await Promise.all([
+          system.json().catch(() => ({})),
+          identity.json().catch(() => ({})),
+        ]);
+        if (!active) return;
+        if (system.ok) setConfiguration(a.configuration);
+        else
+          setMessage(
+            a?.error?.message ?? "Could not load system configuration",
+          );
+        if (identity.ok)
+          setOIDC({ ...oidcDefaults, ...b.configuration, clientSecret: "" });
+        else
+          setMessage(
+            b?.error?.message ?? "Could not load identity configuration",
+          );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    const response = await fetch("/api/v1/admin/system-configuration", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(configuration),
+      }),
+      data = await response.json().catch(() => ({}));
+    setSaving(false);
+    if (response.ok) setConfiguration(data.configuration);
+    setMessage(
+      response.ok
+        ? "System configuration saved"
+        : (data?.error?.message ?? "Could not save system configuration"),
+    );
+  }
+  async function saveOIDC(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    const response = await fetch("/api/v1/admin/identity/oidc", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(oidc),
+      }),
+      data = await response.json().catch(() => ({}));
+    setSaving(false);
+    if (response.ok) setOIDC({ ...data.configuration, clientSecret: "" });
+    setMessage(
+      response.ok
+        ? "OIDC configuration saved"
+        : (data?.error?.message ?? "Could not save OIDC configuration"),
+    );
+  }
+  return (
+    <main className={styles.page}>
+      <header>
+        <div>
+          <p>XSPACE ADMIN · SETTINGS</p>
+          <h1>System configuration</h1>
+          <span>
+            Workspace identity, regional defaults, operational limits, and
+            enterprise sign-in.
+          </span>
+        </div>
+        <nav>
+          <Link href="/admin">Dashboard</Link>
+          <Link href="/admin/policies">Meeting policy</Link>
+          <Link href="/admin/audit">Audit log</Link>
+        </nav>
+      </header>
+      {message && (
+        <div className={styles.notice}>
+          {message}
+          <button
+            type="button"
+            onClick={() => setMessage("")}
+            aria-label="Dismiss message"
+          >
+            ×
+          </button>
+        </div>
+      )}
+      {loading ? (
+        <p>Loading configuration…</p>
+      ) : (
+        <>
+          <section className={`${styles.users} csp-max-width-780`}>
+            <div className={styles.usersHead}>
+              <div>
+                <h2>Workspace defaults</h2>
+                <p>
+                  These values are isolated to this tenant and visible only to
+                  workspace administrators.
+                </p>
+              </div>
+            </div>
+            <form
+              className={`${styles.invite} csp-embedded-form`}
+              onSubmit={save}
+            >
+              <label>
+                Workspace name
+                <input
+                  required
+                  minLength={2}
+                  maxLength={120}
+                  value={configuration.workspaceName}
+                  onChange={(event) =>
+                    setConfiguration({
+                      ...configuration,
+                      workspaceName: event.target.value,
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Default timezone
+                <input
+                  required
+                  value={configuration.defaultTimezone}
+                  onChange={(event) =>
+                    setConfiguration({
+                      ...configuration,
+                      defaultTimezone: event.target.value,
+                    })
+                  }
+                  placeholder="Asia/Jakarta"
+                />
+              </label>
+              <label>
+                Default locale
+                <input
+                  required
+                  value={configuration.defaultLocale}
+                  onChange={(event) =>
+                    setConfiguration({
+                      ...configuration,
+                      defaultLocale: event.target.value,
+                    })
+                  }
+                  placeholder="id-ID"
+                />
+              </label>
+              <label>
+                Support email
+                <input
+                  type="email"
+                  value={configuration.supportEmail}
+                  onChange={(event) =>
+                    setConfiguration({
+                      ...configuration,
+                      supportEmail: event.target.value,
+                    })
+                  }
+                  placeholder="support@company.com"
+                />
+              </label>
+              <label>
+                Maximum meeting duration (minutes)
+                <input
+                  type="number"
+                  min={15}
+                  max={1440}
+                  value={configuration.maxMeetingDurationMinutes}
+                  onChange={(event) =>
+                    setConfiguration({
+                      ...configuration,
+                      maxMeetingDurationMinutes: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Recording retention (days)
+                <input
+                  type="number"
+                  min={1}
+                  max={3650}
+                  value={configuration.recordingRetentionDays}
+                  onChange={(event) =>
+                    setConfiguration({
+                      ...configuration,
+                      recordingRetentionDays: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+              <button disabled={saving}>
+                {saving ? "Saving…" : "Save configuration"}
+              </button>
+            </form>
+          </section>
+          <section className={`${styles.users} csp-max-width-780 csp-margin-top-20`}>
+            <div className={styles.usersHead}>
+              <div>
+                <h2>OpenID Connect SSO</h2>
+                <p>
+                  Connect Okta, Microsoft Entra ID, Keycloak, Auth0, or another
+                  standards-compatible provider.
+                </p>
+              </div>
+            </div>
+            <form
+              className={`${styles.invite} csp-embedded-form`}
+              onSubmit={saveOIDC}
+            >
+              <label>
+                Issuer URL
+                <input
+                  type="url"
+                  required
+                  value={oidc.issuerUrl}
+                  onChange={(event) =>
+                    setOIDC({ ...oidc, issuerUrl: event.target.value })
+                  }
+                  placeholder="https://identity.company.com"
+                />
+              </label>
+              <label>
+                Authorization endpoint
+                <input
+                  type="url"
+                  required
+                  value={oidc.authorizationEndpoint}
+                  onChange={(event) =>
+                    setOIDC({
+                      ...oidc,
+                      authorizationEndpoint: event.target.value,
+                    })
+                  }
+                  placeholder="https://identity.company.com/oauth2/authorize"
+                />
+              </label>
+              <label>
+                Token endpoint
+                <input
+                  type="url"
+                  required
+                  value={oidc.tokenEndpoint}
+                  onChange={(event) =>
+                    setOIDC({ ...oidc, tokenEndpoint: event.target.value })
+                  }
+                  placeholder="https://identity.company.com/oauth2/token"
+                />
+              </label>
+              <label>
+                UserInfo endpoint
+                <input
+                  type="url"
+                  required
+                  value={oidc.userinfoEndpoint}
+                  onChange={(event) =>
+                    setOIDC({ ...oidc, userinfoEndpoint: event.target.value })
+                  }
+                  placeholder="https://identity.company.com/oauth2/userinfo"
+                />
+              </label>
+              <label>
+                Client ID
+                <input
+                  required
+                  value={oidc.clientId}
+                  onChange={(event) =>
+                    setOIDC({ ...oidc, clientId: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Client secret
+                <input
+                  type="password"
+                  required={!oidc.clientSecretConfigured}
+                  value={oidc.clientSecret}
+                  onChange={(event) =>
+                    setOIDC({ ...oidc, clientSecret: event.target.value })
+                  }
+                  placeholder={
+                    oidc.clientSecretConfigured
+                      ? "Stored securely — leave blank to keep"
+                      : "Enter provider client secret"
+                  }
+                />
+              </label>
+              <label>
+                Default provisioned role
+                <select
+                  value={oidc.defaultRole}
+                  onChange={(event) =>
+                    setOIDC({ ...oidc, defaultRole: event.target.value })
+                  }
+                >
+                  <option value="MEMBER">Member</option>
+                  <option value="GUEST">Guest</option>
+                </select>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={oidc.autoProvision}
+                  onChange={(event) =>
+                    setOIDC({ ...oidc, autoProvision: event.target.checked })
+                  }
+                />{" "}
+                Automatically provision verified users
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={oidc.enabled}
+                  onChange={(event) =>
+                    setOIDC({ ...oidc, enabled: event.target.checked })
+                  }
+                />{" "}
+                Enable OIDC sign-in for this workspace
+              </label>
+              <small>
+                Callback URL:
+                https://xspace.cankonix.com/api/v1/auth/sso/oidc/callback
+              </small>
+              <button disabled={saving}>
+                {saving ? "Saving…" : "Save OIDC configuration"}
+              </button>
+            </form>
+          </section>
+        </>
+      )}
+    </main>
+  );
 }

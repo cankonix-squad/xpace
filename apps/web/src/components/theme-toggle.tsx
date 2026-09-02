@@ -20,7 +20,6 @@ export function ThemeToggle({ compact = false }: { compact?: boolean }) {
   function toggleTheme() {
     const next: Theme = light ? "dark-green" : "light";
     document.documentElement.dataset.theme = next;
-    document.documentElement.style.colorScheme = next === "light" ? "light" : "dark";
     window.localStorage.setItem("xpace-theme", next);
     window.dispatchEvent(new Event("xpace-theme-change"));
   }

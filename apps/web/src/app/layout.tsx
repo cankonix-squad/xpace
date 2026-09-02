@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import favicon from "../asset/xspace-favicon.svg";
 import "@livekit/components-styles";
 import "./globals.css";
@@ -27,11 +28,12 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html lang="id" className="h-full antialiased" data-theme="dark-green" suppressHydrationWarning>
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
-        <script dangerouslySetInnerHTML={{__html:`try{var theme=localStorage.getItem("xpace-theme");if(theme!=="light"&&theme!=="dark-green")theme="dark-green";document.documentElement.dataset.theme=theme;document.documentElement.style.colorScheme=theme==="light"?"light":"dark"}catch(e){document.documentElement.dataset.theme="dark-green"}`}}/>
+        <script nonce={nonce} dangerouslySetInnerHTML={{__html:`try{var theme=localStorage.getItem("xpace-theme");if(theme!=="light"&&theme!=="dark-green")theme="dark-green";document.documentElement.dataset.theme=theme}catch(e){document.documentElement.dataset.theme="dark-green"}`}}/>
         {children}
       </body>
     </html>

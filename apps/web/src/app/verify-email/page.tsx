@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import { CspImage as Image } from "@/components/csp-image";
 import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";

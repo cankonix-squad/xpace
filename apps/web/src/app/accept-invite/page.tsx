@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import { CspImage as Image } from "@/components/csp-image";
 import { FormEvent, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import loginLogo from "../../asset/Logo-Login-transparent.png";

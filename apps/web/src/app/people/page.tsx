@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import { CspImage as Image } from "@/components/csp-image";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./people.module.css";

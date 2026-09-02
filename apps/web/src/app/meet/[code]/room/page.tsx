@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable react-hooks/set-state-in-effect -- polling callbacks update state only after awaited network responses. */
 import Link from "next/link";
-import Image from "next/image";
+import { CspImage as Image } from "@/components/csp-image";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LiveKitRoom } from "@livekit/components-react";

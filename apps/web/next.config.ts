@@ -1,20 +1,6 @@
 import type { NextConfig } from "next";
 
 const isDevelopment = process.env.NODE_ENV === "development";
-const contentSecurityPolicy = [
-  "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ""}`,
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' blob: data:",
-  "font-src 'self' data:",
-  "connect-src 'self' ws: wss:",
-  "media-src 'self' blob: https://livekit.xspace.cankonix.com",
-  "worker-src 'self' blob:",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-].join("; ");
 
 const nextConfig: NextConfig = {
   devIndicators: false,
@@ -22,7 +8,6 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   async headers() {
     const headers = [
-      {key:"Content-Security-Policy",value:contentSecurityPolicy},
       {key:"Cross-Origin-Resource-Policy",value:"same-origin"},
       {key:"Permissions-Policy",value:"camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"},
       {key:"Referrer-Policy",value:"no-referrer"},

@@ -4,6 +4,13 @@ services:
   api:
     build:
       context: ./services/api
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=128m,mode=1777
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-xpace}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-xpace}?sslmode=disable
       API_SESSION_SIGNING_KEY: ${API_SESSION_SIGNING_KEY:?Set API_SESSION_SIGNING_KEY in .env}
@@ -140,7 +147,8 @@ services:
         rtc:
           tcp_port: 7881
           udp_port: 7882
-          use_external_ip: true
+          use_external_ip: ${LIVEKIT_USE_EXTERNAL_IP:-true}
+          advertise_internal_ip: true
         redis:
           address: redis:6379
           password: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
@@ -166,7 +174,7 @@ services:
     restart: unless-stopped
 
   egress:
-    image: livekit/egress:v1.9.0
+    image: livekit/egress:v1.13.0
     environment:
       EGRESS_CONFIG_FILE: /etc/egress.yaml
     configs:
@@ -213,6 +221,7 @@ configs:
       api_key: ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in .env}
       api_secret: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET in .env}
       ws_url: ws://livekit:7880
+      insecure: true
       redis:
         address: redis:6379
         password: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
