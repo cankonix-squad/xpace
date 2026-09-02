@@ -13,4 +13,4 @@ export XPACE_TEST_API_URL="${XPACE_TEST_API_URL:-http://127.0.0.1:8080}"
 export GOCACHE="${GOCACHE:-/tmp/xpace-go-build-cache}"
 
 cd services/api
-go test -tags=integration ./internal/httpapi -run '^TestIntegration(AuthMeetingLifecycle|TenantIsolation)$' -count=1 -v
+go test -tags=integration ./internal/httpapi -run '^TestIntegration(AuthMeetingLifecycle|TenantIsolation|OIDCSCIMAcceptance)$' -count=1 -v

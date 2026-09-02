@@ -247,6 +247,7 @@ Progress 2026-08-25: production DNS/TLS readiness, responsive route audit, dan a
 - [~] Mengimplementasikan SSO OIDC terlebih dahulu, lalu SAML.
   - [x] OIDC authorization-code flow dengan PKCE S256, state sekali pakai, client secret terenkripsi, UserInfo identity mapping, JIT provisioning terbatas, audit, konfigurasi admin, dan tombol login sudah deployed.
   - [x] Endpoint HTTPS-only, redirect URI produksi, proteksi admin, unit test konfigurasi, dan smoke test kondisi SSO belum aktif selesai 25 Agustus 2026.
+  - [x] Validasi ID token OIDC provider-agnostic mencakup discovery metadata, JWKS RSA/RS256, signature, issuer, audience/authorized party, expiry/issued-at, nonce, subject UserInfo, `at_hash`, verified-email linking/JIT, role mapping, state anti-replay, dan acceptance provider lokal selesai 2 September 2026; bukti tersedia di `docs/identity-provider-acceptance-2026-09-02.md`.
   - [ ] Menjalankan acceptance end-to-end dengan tenant/provider OIDC perusahaan nyata lalu mengimplementasikan SAML.
 - [~] Menambahkan SCIM provisioning, advanced RBAC, dan session/device management.
   - [x] Session/device management: metadata IP/browser/platform, last-seen throttling, daftar sesi aktif, revoke satu sesi, sign out perangkat lain, audit event, dan UI Security responsif.
@@ -258,6 +259,7 @@ Progress 2026-08-25: production DNS/TLS readiness, responsive route audit, dan a
     - [x] Users/Groups list, filter/pagination, create, get, replace, deactivate/delete, session revocation, group membership, dan audit event deployed 25 Agustus 2026.
     - [x] PATCH Users untuk active/userName/displayName/externalId serta PATCH Groups untuk displayName dan add/remove/replace members, termasuk filtered member removal.
     - [x] Unit test PATCH parsing, ServiceProviderConfig patch support, deployment API, health check, dan protected PATCH smoke test selesai 25 Agustus 2026.
+    - [x] Acceptance provider-agnostic lokal menguji provisioning Users/Groups, bearer-token tenant isolation, penyambungan akun ke OIDC tanpa perubahan role, audit trail, deprovisioning, dan pencabutan sesi selesai 2 September 2026.
     - [ ] Menjalankan acceptance end-to-end dengan tenant Microsoft Entra ID atau Okta nyata.
 - [~] Menambahkan retention policy, legal hold, export data, dan approval workflow.
   - [x] Tenant retention policy untuk recording, Drive trash, chat, dan audit dengan validasi 1–3650 hari serta minimum audit 30 hari.

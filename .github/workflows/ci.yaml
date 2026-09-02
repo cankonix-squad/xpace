@@ -79,8 +79,8 @@ jobs:
       - name: Scan reachable Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 
-  meeting-lifecycle:
-    name: Meeting lifecycle integration
+  integration:
+    name: Meeting and identity integration
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -113,7 +113,7 @@ jobs:
           done
           docker compose logs api postgres
           exit 1
-      - name: Test create, join, admit, meeting, leave, and end
+      - name: Test meeting lifecycle, tenant isolation, OIDC, and SCIM
         run: scripts/integration-test.sh
       - name: Capture integration logs on failure
         if: failure()

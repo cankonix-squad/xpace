@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -119,8 +120,8 @@ func (api *API) oidcCallback(writer http.ResponseWriter, request *http.Request) 
 		return
 	}
 	state, code := request.URL.Query().Get("state"), request.URL.Query().Get("code")
-	var tenantID, encryptedVerifier string
-	err := api.database.QueryRowContext(request.Context(), `DELETE FROM oidc_login_states WHERE state_hash=$1 AND expires_at>NOW() RETURNING tenant_id,verifier_encrypted`, hashToken(state)).Scan(&tenantID, &encryptedVerifier)
+	var tenantID, encryptedVerifier, nonceHash string
+	err := api.database.QueryRowContext(request.Context(), `DELETE FROM oidc_login_states WHERE state_hash=$1 AND expires_at>NOW() RETURNING tenant_id,verifier_encrypted,nonce_hash`, hashToken(state)).Scan(&tenantID, &encryptedVerifier, &nonceHash)
 	if err != nil || code == "" {
 		http.Redirect(writer, request, "/login?error=sso_state", http.StatusFound)
 		return
@@ -143,8 +144,16 @@ func (api *API) oidcCallback(writer http.ResponseWriter, request *http.Request) 
 	form := url.Values{"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {oidcRedirectURI()}, "client_id": {configuration.ClientID}, "client_secret": {secret}, "code_verifier": {verifier}}
 	var tokenResponse struct {
 		AccessToken string `json:"access_token"`
+		IDToken     string `json:"id_token"`
 	}
-	if err = oidcJSONRequest(request.Context(), http.MethodPost, configuration.TokenEndpoint, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", "", &tokenResponse); err != nil || tokenResponse.AccessToken == "" {
+	if err = oidcJSONRequest(request.Context(), http.MethodPost, configuration.TokenEndpoint, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", "", &tokenResponse); err != nil || tokenResponse.AccessToken == "" || tokenResponse.IDToken == "" {
+		slog.Warn("OIDC token exchange failed", "error", err, "issuer", configuration.IssuerURL)
+		http.Redirect(writer, request, "/login?error=sso_token", http.StatusFound)
+		return
+	}
+	idTokenSubject, err := validateOIDCIDToken(request.Context(), configuration, tokenResponse.IDToken, tokenResponse.AccessToken, nonceHash)
+	if err != nil {
+		slog.Warn("OIDC ID token validation failed", "error", err, "issuer", configuration.IssuerURL)
 		http.Redirect(writer, request, "/login?error=sso_token", http.StatusFound)
 		return
 	}
@@ -154,11 +163,12 @@ func (api *API) oidcCallback(writer http.ResponseWriter, request *http.Request) 
 		Name          string `json:"name"`
 		EmailVerified *bool  `json:"email_verified"`
 	}
-	if err = oidcJSONRequest(request.Context(), http.MethodGet, configuration.UserinfoEndpoint, nil, "", tokenResponse.AccessToken, &identity); err != nil || identity.Subject == "" || identity.Email == "" || (identity.EmailVerified != nil && !*identity.EmailVerified) {
+	if err = oidcJSONRequest(request.Context(), http.MethodGet, configuration.UserinfoEndpoint, nil, "", tokenResponse.AccessToken, &identity); err != nil || identity.Subject == "" || identity.Subject != idTokenSubject || identity.Email == "" || (identity.EmailVerified != nil && !*identity.EmailVerified) {
 		http.Redirect(writer, request, "/login?error=sso_identity", http.StatusFound)
 		return
 	}
-	user, err := api.resolveOIDCUser(request.Context(), tenantID, configuration, identity.Subject, identity.Email, identity.Name)
+	emailVerified := identity.EmailVerified != nil && *identity.EmailVerified
+	user, err := api.resolveOIDCUser(request.Context(), tenantID, configuration, identity.Subject, identity.Email, identity.Name, emailVerified)
 	if err != nil {
 		http.Redirect(writer, request, "/login?error=sso_user", http.StatusFound)
 		return
@@ -178,11 +188,17 @@ func (api *API) loadOIDCConfiguration(ctx context.Context, tenantID string) (oid
 	return item, err
 }
 
-func (api *API) resolveOIDCUser(ctx context.Context, tenantID string, configuration oidcConfiguration, subject, email, name string) (currentUser, error) {
+func (api *API) resolveOIDCUser(ctx context.Context, tenantID string, configuration oidcConfiguration, subject, email, name string, emailVerified bool) (currentUser, error) {
 	var user currentUser
 	err := api.database.QueryRowContext(ctx, `SELECT u.id,u.tenant_id,t.slug,t.name,u.email,u.username,u.display_name,u.role FROM user_oidc_identities i JOIN users u ON u.id=i.user_id AND u.tenant_id=i.tenant_id JOIN tenants t ON t.id=u.tenant_id WHERE i.tenant_id=$1 AND i.issuer_url=$2 AND i.subject=$3 AND u.status='ACTIVE'`, tenantID, configuration.IssuerURL, subject).Scan(&user.ID, &user.TenantID, &user.TenantSlug, &user.TenantName, &user.Email, &user.Username, &user.DisplayName, &user.Role)
 	if err == nil {
 		return user, nil
+	}
+	// Linking or creating an account by email is only safe when the provider
+	// explicitly attests that it verified the address. Existing subject links do
+	// not depend on a mutable email claim and are handled above.
+	if !emailVerified {
+		return user, fmt.Errorf("OIDC email is not verified")
 	}
 	err = api.database.QueryRowContext(ctx, `SELECT u.id,u.tenant_id,t.slug,t.name,u.email,u.username,u.display_name,u.role FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.tenant_id=$1 AND LOWER(u.email)=LOWER($2) AND u.status='ACTIVE'`, tenantID, strings.TrimSpace(email)).Scan(&user.ID, &user.TenantID, &user.TenantSlug, &user.TenantName, &user.Email, &user.Username, &user.DisplayName, &user.Role)
 	if err != nil && !configuration.AutoProvision {
@@ -314,7 +330,15 @@ func oidcHTTPClient(allowLocal bool) *http.Client {
 				return nil, fmt.Errorf("OIDC endpoint resolved to a local or private network")
 			}
 		}
-		return dialer.DialContext(ctx, network, net.JoinHostPort(addresses[0].IP.String(), port))
+		var dialErr error
+		for _, resolved := range addresses {
+			connection, attemptErr := dialer.DialContext(ctx, network, net.JoinHostPort(resolved.IP.String(), port))
+			if attemptErr == nil {
+				return connection, nil
+			}
+			dialErr = attemptErr
+		}
+		return nil, fmt.Errorf("could not connect to OIDC endpoint: %w", dialErr)
 	}
 	return &http.Client{
 		Transport: transport,
