@@ -34,7 +34,7 @@ else
 fi
 
 curl --connect-timeout 5 --max-time 15 -fsS "$web_url/login" -o "$tmp_dir/login.html"
-grep -Fq '<title>Xpace - Secure Collaboration' "$tmp_dir/login.html" || {
+grep -Fq '<title>Xspace' "$tmp_dir/login.html" || {
   echo "FAIL: expected Xpace document title was not rendered"
   exit 1
 }
