@@ -192,6 +192,20 @@ func TestIntegrationAuthMeetingLifecycle(t *testing.T) {
 	if tokenResponse.Token == "" || tokenResponse.RoomName == "" {
 		t.Fatal("realtime token was not issued after admission")
 	}
+	if _, err = database.ExecContext(ctx, `UPDATE meeting_participants SET status='DISCONNECTED',left_at=NOW() WHERE id=$1`, memberJoin.Participant.ID); err != nil {
+		t.Fatal(err)
+	}
+	var reconnectTokenResponse struct {
+		Token string `json:"token"`
+	}
+	doJSON(t, member, http.MethodPost, meetingURL+"/token", nil, http.StatusOK, &reconnectTokenResponse)
+	if reconnectTokenResponse.Token == "" {
+		t.Fatal("realtime token was not reissued while participant was reconnecting")
+	}
+	var restoredStatus string
+	if err = database.QueryRowContext(ctx, `SELECT status::text FROM meeting_participants WHERE id=$1`, memberJoin.Participant.ID).Scan(&restoredStatus); err != nil || restoredStatus != "JOINED" {
+		t.Fatalf("participant reconnect status = %q, error = %v", restoredStatus, err)
+	}
 	var externalTokenResponse struct {
 		Token    string `json:"token"`
 		RoomName string `json:"roomName"`

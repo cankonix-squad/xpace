@@ -124,27 +124,43 @@ func (api *API) reconcileRealtimeParticipants(ctx context.Context, meeting meeti
 		}
 	}
 	rows, err := api.database.QueryContext(ctx, `
-		SELECT id,COALESCE(user_id::text,external_user_id::text)
+		SELECT id,COALESCE(user_id::text,external_user_id::text),status::text,left_at
 		FROM meeting_participants
-		WHERE meeting_id=$1 AND tenant_id=$2 AND status='JOINED'
+		WHERE meeting_id=$1 AND tenant_id=$2 AND status IN ('JOINED','DISCONNECTED')
 		  AND joined_at < $3`, meeting.ID, meeting.TenantID, time.Now().Add(-20*time.Second))
 	if err != nil {
 		return
 	}
 	defer rows.Close()
-	type staleCandidate struct{ id, userID string }
+	type staleCandidate struct {
+		id, userID, status string
+		disconnectedAt     sql.NullTime
+	}
 	candidates := make([]staleCandidate, 0)
 	for rows.Next() {
 		var candidate staleCandidate
-		if rows.Scan(&candidate.id, &candidate.userID) == nil {
+		if rows.Scan(&candidate.id, &candidate.userID, &candidate.status, &candidate.disconnectedAt) == nil {
 			candidates = append(candidates, candidate)
 		}
 	}
+	now := time.Now()
 	for _, candidate := range candidates {
 		if _, online := liveUsers[candidate.userID]; online {
+			if candidate.status == "DISCONNECTED" {
+				_, _ = api.database.ExecContext(ctx, `UPDATE meeting_participants SET status='JOINED',left_at=NULL WHERE id=$1 AND status='DISCONNECTED'`, candidate.id)
+			}
 			continue
 		}
-		_, _ = api.database.ExecContext(ctx, `UPDATE meeting_participants SET status='LEFT',left_at=COALESCE(left_at,NOW()) WHERE id=$1 AND status='JOINED'`, candidate.id)
+		if candidate.status == "JOINED" {
+			// A missing LiveKit participant is initially considered reconnecting.
+			// Mobile handoffs and restrictive networks commonly need more than one
+			// polling cycle to recover, so do not finalize the departure yet.
+			_, _ = api.database.ExecContext(ctx, `UPDATE meeting_participants SET status='DISCONNECTED',left_at=NOW() WHERE id=$1 AND status='JOINED'`, candidate.id)
+			continue
+		}
+		if candidate.disconnectedAt.Valid && now.Sub(candidate.disconnectedAt.Time) >= 2*time.Minute {
+			_, _ = api.database.ExecContext(ctx, `UPDATE meeting_participants SET status='LEFT' WHERE id=$1 AND status='DISCONNECTED'`, candidate.id)
+		}
 	}
 }
 

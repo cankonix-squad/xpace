@@ -35,9 +35,20 @@ func (api *API) liveKitToken(writer http.ResponseWriter, request *http.Request, 
 		errorJSON(writer, http.StatusInternalServerError, "INTERNAL_ERROR", "could not verify participant")
 		return
 	}
-	if status != "JOINED" {
+	if status != "JOINED" && status != "DISCONNECTED" {
 		errorJSON(writer, http.StatusForbidden, "WAITING_FOR_HOST", "the host has not admitted you yet")
 		return
+	}
+	if status == "DISCONNECTED" {
+		result, updateErr := api.database.ExecContext(request.Context(), `UPDATE meeting_participants SET status='JOINED',joined_at=NOW(),left_at=NULL WHERE id=$1 AND meeting_id=$2 AND tenant_id=$3 AND status='DISCONNECTED'`, participantID, meeting.ID, meeting.TenantID)
+		if updateErr != nil {
+			errorJSON(writer, http.StatusInternalServerError, "INTERNAL_ERROR", "could not restore participant session")
+			return
+		}
+		if updated, _ := result.RowsAffected(); updated == 0 {
+			errorJSON(writer, http.StatusConflict, "REJOIN_REQUIRED", "return to device preview to rejoin the meeting")
+			return
+		}
 	}
 	apiKey, apiSecret := os.Getenv("LIVEKIT_API_KEY"), os.Getenv("LIVEKIT_API_SECRET")
 	if apiKey == "" || apiSecret == "" {
