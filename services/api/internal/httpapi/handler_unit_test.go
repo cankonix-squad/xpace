@@ -105,9 +105,7 @@ func TestRequireSessionRejectsTamperedCookieWithoutDatabase(t *testing.T) {
 
 func TestCreateMeetingPersistsTenantPolicyAndAudit(t *testing.T) {
 	api, mock := mockAPI(t)
-	mock.ExpectQuery("SELECT p.key,p.name").WithArgs("tenant-1").WillReturnRows(sqlmock.NewRows([]string{"key", "name", "description", "price", "trial_days", "max_users", "max_meetings", "max_duration", "max_storage", "max_recordings", "features", "status", "trial_ends", "period_ends", "cancel"}).AddRow("BUSINESS", "Business", "Business plan", 499000, 14, 25, 1000, 240, int64(107374182400), 500, []byte(`{"recording":true,"drive":true}`), "ACTIVE", nil, time.Now().Add(24*time.Hour), false))
-	mock.ExpectQuery("SELECT entitlement_key,enabled,limit_value").WithArgs("tenant-1").WillReturnRows(sqlmock.NewRows([]string{"key", "enabled", "limit"}))
-	mock.ExpectQuery("FROM users WHERE tenant_id=\\$1").WithArgs("tenant-1").WillReturnRows(sqlmock.NewRows([]string{"users", "meetings", "storage", "recordings"}).AddRow(1, 0, 0, 0))
+	mock.ExpectQuery("SELECT subscription.status").WithArgs("tenant-1").WillReturnRows(sqlmock.NewRows([]string{"status", "trial_ends", "period_ends", "limit", "used"}).AddRow("ACTIVE", nil, time.Now().Add(24*time.Hour), 1000, 0))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT guest_access_enabled,waiting_room_default,recording_enabled,screen_share_enabled FROM tenant_meeting_policies WHERE tenant_id=$1")).WithArgs("tenant-1").WillReturnRows(sqlmock.NewRows([]string{"guest", "waiting", "recording", "screen"}).AddRow(true, true, true, true))
 	mock.ExpectQuery("INSERT INTO meetings").WithArgs("tenant-1", "user-1", sqlmock.AnyArg(), sqlmock.AnyArg(), "Planning", nil, "WAITING", true).WillReturnRows(sqlmock.NewRows([]string{"id", "status", "created_at"}).AddRow("meeting-1", "WAITING", time.Now()))
 	mock.ExpectExec("INSERT INTO audit_events").WillReturnResult(sqlmock.NewResult(1, 1))

@@ -20,7 +20,7 @@ func TestApplyLimitOverride(t *testing.T) {
 
 func TestMeetingQuotaExceeded(t *testing.T) {
 	api, mock := mockAPI(t)
-	expectSubscriptionQueries(mock, 5, 100, 0)
+	mock.ExpectQuery("SELECT subscription.status").WithArgs("tenant-1").WillReturnRows(sqlmock.NewRows([]string{"status", "trial_ends", "period_ends", "limit", "used"}).AddRow("ACTIVE", nil, time.Now().Add(24*time.Hour), 100, 100))
 	err := api.enforceTenantQuota(context.Background(), "tenant-1", "meetings", 1)
 	var quota *entitlementError
 	if !errors.As(err, &quota) || quota.code != "QUOTA_EXCEEDED" || quota.status != 402 {
@@ -33,9 +33,7 @@ func TestMeetingQuotaExceeded(t *testing.T) {
 
 func TestExpiredTrialBlocksWrites(t *testing.T) {
 	api, mock := mockAPI(t)
-	mock.ExpectQuery("SELECT p.key,p.name").WithArgs("tenant-1").WillReturnRows(planRow("TRIALING", time.Now().Add(-time.Hour), 100))
-	mock.ExpectQuery("SELECT entitlement_key,enabled,limit_value").WithArgs("tenant-1").WillReturnRows(sqlmock.NewRows([]string{"key", "enabled", "limit"}))
-	mock.ExpectQuery("FROM users WHERE tenant_id=\\$1").WithArgs("tenant-1").WillReturnRows(sqlmock.NewRows([]string{"users", "meetings", "storage", "recordings"}).AddRow(1, 0, 0, 0))
+	mock.ExpectQuery("SELECT subscription.status").WithArgs("tenant-1").WillReturnRows(sqlmock.NewRows([]string{"status", "trial_ends", "period_ends", "limit", "used"}).AddRow("TRIALING", time.Now().Add(-time.Hour), nil, 100, 0))
 	err := api.enforceTenantQuota(context.Background(), "tenant-1", "meetings", 1)
 	var quota *entitlementError
 	if !errors.As(err, &quota) || quota.code != "SUBSCRIPTION_INACTIVE" {

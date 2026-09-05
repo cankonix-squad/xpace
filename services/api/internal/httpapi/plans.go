@@ -140,6 +140,9 @@ func applyLimitOverride(plan *planEntitlements, key string, value int64) {
 }
 
 func (api *API) enforceTenantQuota(ctx context.Context, tenantID, resource string, increment int64) error {
+	if resource == "meetings" {
+		return api.enforceMeetingQuota(ctx, tenantID, increment)
+	}
 	item, err := api.loadTenantSubscription(ctx, tenantID)
 	if err != nil {
 		return err
@@ -174,6 +177,39 @@ func (api *API) enforceTenantQuota(ctx context.Context, tenantID, resource strin
 		used, limit = item.Usage.StorageBytes, item.Plan.MaxStorageBytes
 	default:
 		return errors.New("unsupported quota resource")
+	}
+	if used+increment > limit {
+		return &entitlementError{status: 402, code: "QUOTA_EXCEEDED", message: "workspace plan quota exceeded"}
+	}
+	return nil
+}
+
+func (api *API) enforceMeetingQuota(ctx context.Context, tenantID string, increment int64) error {
+	var status string
+	var trialEndsAt, currentPeriodEndsAt *time.Time
+	var used, limit int64
+	err := api.database.QueryRowContext(ctx, `
+		SELECT subscription.status,
+		       subscription.trial_ends_at,
+		       subscription.current_period_ends_at,
+		       COALESCE(entitlement.limit_value,plan.max_meetings_per_month),
+		       (SELECT COUNT(*)
+		          FROM meetings
+		         WHERE tenant_id=subscription.tenant_id
+		           AND created_at>=date_trunc('month',NOW()))
+		FROM tenant_subscriptions AS subscription
+		JOIN saas_plans AS plan ON plan.key=subscription.plan_key
+		LEFT JOIN tenant_entitlements AS entitlement
+		  ON entitlement.tenant_id=subscription.tenant_id
+		 AND entitlement.entitlement_key='meetings.monthly'
+		WHERE subscription.tenant_id=$1`, tenantID).Scan(&status, &trialEndsAt, &currentPeriodEndsAt, &limit, &used)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	active := status == "ACTIVE" && (currentPeriodEndsAt == nil || currentPeriodEndsAt.After(now)) || status == "TRIALING" && trialEndsAt != nil && trialEndsAt.After(now)
+	if !active {
+		return &entitlementError{status: 402, code: "SUBSCRIPTION_INACTIVE", message: "workspace subscription is not active"}
 	}
 	if used+increment > limit {
 		return &entitlementError{status: 402, code: "QUOTA_EXCEEDED", message: "workspace plan quota exceeded"}
